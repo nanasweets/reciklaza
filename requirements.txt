@@ -4,4 +4,3 @@ openpyxl
 plotly
 reportlab
 matplotlib
-kaleido
