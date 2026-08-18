@@ -645,6 +645,37 @@ except:
         # Fallback na helveticu (ne radi srpska slova, ali bolje nego ništa)
         pass
 
+# ============================
+# PDF GENERATOR (NOVA VERZIJA)
+# ============================
+
+import matplotlib.pyplot as plt
+import matplotlib
+from io import BytesIO
+import base64
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle, StyleSheet1
+from reportlab.lib import colors
+from reportlab.lib.units import cm, inch, mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os
+
+# Registrujemo font za srpska slova (koristimo DejaVu)
+try:
+    # Probaj da registruješ font iz sistema
+    pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
+    pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
+except:
+    # Ako nema DejaVu, probaj neki drugi
+    try:
+        pdfmetrics.registerFont(TTFont('DejaVu', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
+        pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
+    except:
+        # Fallback na helveticu (ne radi srpska slova, ali bolje nego ništa)
+        pass
+
 def generisi_pdf(df):
     """Generiše profesionalan PDF izveštaj sa grafikonima"""
     
