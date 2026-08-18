@@ -40,18 +40,21 @@ def ucitaj_podatke(fajl):
     if SHEET_REKLAMACIJE not in xl.sheet_names:
         st.error(f"Sheet '{SHEET_REKLAMACIJE}' nije pronađen!")
         return None, None
-    reciklaza = pd.read_excel(fajl, sheet_name=SHEET_RECIKLAZA, header=0)
-    reklamacije = pd.read_excel(fajl, sheet_name=SHEET_REKLAMACIJE, header=0)
+    reciklaza = pd.read_excel(fajl, sheet_name=SHEET_RECIKLAZA, header=0, dtype=str)
+    reklamacije = pd.read_excel(fajl, sheet_name=SHEET_REKLAMACIJE, header=0, dtype=str)
     return reciklaza, reklamacije
 
 def pripremi_lookup(reklamacije):
+    """Pravi rečnik sa ključevima kao string (bez razmaka)"""
     rek = reklamacije.copy()
-    rek["_kljuc"] = pd.to_numeric(rek["Reklamacija: Broj reklamacije"], errors="coerce").astype("Int64")
+    # Ukloni sve razmake i pretvori u string
+    rek["_kljuc"] = rek["Reklamacija: Broj reklamacije"].astype(str).str.replace(" ", "").str.strip()
     return rek.set_index("_kljuc")
 
 def spoji(reciklaza, lookup):
     df = reciklaza.copy()
-    df["_kljuc"] = pd.to_numeric(df["Broj reklamacije"], errors="coerce").astype("Int64")
+    # I ovde ukloni razmake
+    df["_kljuc"] = df["Broj reklamacije"].astype(str).str.replace(" ", "").str.strip()
     
     for out_kol, src_kol in MAPPING.items():
         if src_kol not in lookup.columns:
@@ -59,15 +62,23 @@ def spoji(reciklaza, lookup):
             continue
         vrednosti = []
         for kljuc in df["_kljuc"]:
-            if pd.isna(kljuc) or kljuc not in lookup.index:
+            if pd.isna(kljuc) or kljuc == "nan" or kljuc == "":
                 vrednosti.append(None)
-            else:
+            elif kljuc in lookup.index:
                 vrednosti.append(lookup.at[kljuc, src_kol])
+            else:
+                vrednosti.append(None)
         df[out_kol] = vrednosti
     
-    mask = df["_kljuc"].notna()
-    pronadjeno = df.loc[mask, "_kljuc"].isin(lookup.index).sum()
-    nepronadjeno = mask.sum() - pronadjeno
+    mask = df["_kljuc"].notna() & (df["_kljuc"] != "nan") & (df["_kljuc"] != "")
+    pronadjeno = 0
+    nepronadjeno = 0
+    for kljuc in df.loc[mask, "_kljuc"]:
+        if kljuc in lookup.index:
+            pronadjeno += 1
+        else:
+            nepronadjeno += 1
+    
     df = df.drop(columns=["_kljuc"])
     
     extras = [c for c in df.columns if c not in KOLONE_OUTPUT]
@@ -98,7 +109,10 @@ def formatiraj_i_sacuvaj(df):
     for row_idx, row in enumerate(df.itertuples(index=False), start=2):
         for col_idx, value in enumerate(row, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
-            cell.value = None if (pd.isna(value) and not isinstance(value, str)) else value
+            if pd.isna(value) or (isinstance(value, str) and value.lower() in ["nan", "none", ""]):
+                cell.value = None
+            else:
+                cell.value = value
             col_name = df.columns[col_idx - 1]
             cell.font = Font(name="Arial", size=10)
             cell.border = border
@@ -128,6 +142,10 @@ def formatiraj_i_sacuvaj(df):
     wb.save(output)
     return output.getvalue()
 
+# ============================
+# STREAMLIT UI
+# ============================
+
 st.set_page_config(page_title="Spajanje reciklaže", layout="wide")
 st.title("🔄 Spajanje Excel fajlova za reciklažu")
 st.markdown("""
@@ -149,7 +167,17 @@ if uploaded_file is not None:
             lookup = pripremi_lookup(reklamacije)
             df_final, pronadjeno, nepronadjeno = spoji(reciklaza, lookup)
         
-        st.info(f"✅ Pronađeno: {pronadjeno} reklamacija, Nije pronađeno: {nepronadjeno}")
+        st.info(f"✅ Pronađeno: **{pronadjeno}** reklamacija, ⚠️ Nije pronađeno: **{nepronadjeno}**")
+        
+        # Ako ima nepronađenih, prikaži ih
+        if nepronadjeno > 0:
+            with st.expander("🔍 Prikaži nepronađene brojeve reklamacija"):
+                lookup_kolone = list(MAPPING.keys())
+                # Uzmi redove gde su sve lookup kolone prazne
+                mask = df_final[lookup_kolone].isna().all(axis=1)
+                nepronadjeni = df_final.loc[mask, ["Broj reklamacije"] + lookup_kolone]
+                st.dataframe(nepronadjeni, use_container_width=True)
+                st.warning(f"⚠️ {len(nepronadjeni)} redova nije pronađeno u bazi reklamacija")
         
         st.subheader("📊 Pregled rezultata (prvih 5 redova)")
         st.dataframe(df_final.head(), use_container_width=True)
