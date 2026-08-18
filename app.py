@@ -410,6 +410,10 @@ def upisi_prevoznike(ws, df):
     for col in [1, 2, 4, 5, 6]:
         ws.column_dimensions[get_column_letter(col)].width = 25
 
+# ============================
+# NAPREDNE METRIKE ZA EXCEL
+# ============================
+
 def upisi_metrike(ws, df):
     """Dodatni sheet sa naprednim metrikama"""
     ws.cell(row=1, column=1, value="Napredne metrike")
@@ -417,7 +421,7 @@ def upisi_metrike(ws, df):
     
     row = 3
     
-    # 1. Pareto analiza (80/20)
+    # 1. Pareto analiza (80/20) - sa brojem reklamacije
     if "Nabavna cena" in df.columns and "Količina" in df.columns:
         df["Ukupna vrednost"] = df["Nabavna cena"] * df["Količina"]
         pareto = df.sort_values("Ukupna vrednost", ascending=False)
@@ -427,21 +431,22 @@ def upisi_metrike(ws, df):
         ws.cell(row=row, column=1).font = Font(bold=True, size=12)
         row += 1
         
-        ws.cell(row=row, column=1, value="Redni broj")
-        ws.cell(row=row, column=2, value="Naziv artikla")
-        ws.cell(row=row, column=3, value="Vrednost (RSD)")
-        ws.cell(row=row, column=4, value="Kumulativni %")
-        primeni_stil_header(ws, 4)
+        headers = ["Redni broj", "Broj reklamacije", "Naziv artikla", "Vrednost (RSD)", "Kumulativni %", "Datum obrade", "Klasifikacija štete"]
+        for col_idx, h in enumerate(headers, start=1):
+            ws.cell(row=row, column=col_idx, value=h)
+        primeni_stil_header(ws, len(headers))
         row += 1
         
         for idx, (_, r) in enumerate(pareto.head(20).iterrows(), 1):
             ws.cell(row=row, column=1).value = idx
-            ws.cell(row=row, column=2).value = excel_compatible(r["Naziv artikla"])
-            ws.cell(row=row, column=3).value = excel_compatible(r["Ukupna vrednost"])
-            ws.cell(row=row, column=4).value = excel_compatible(r["Kumulativni procenat"])
+            ws.cell(row=row, column=2).value = excel_compatible(r["Broj reklamacije"])
+            ws.cell(row=row, column=3).value = excel_compatible(r["Naziv artikla"])
+            ws.cell(row=row, column=4).value = excel_compatible(r["Ukupna vrednost"])
+            ws.cell(row=row, column=5).value = excel_compatible(r["Kumulativni procenat"])
+            ws.cell(row=row, column=6).value = excel_compatible(r["Datum obrade"]) if "Datum obrade" in r else None
+            ws.cell(row=row, column=7).value = excel_compatible(r["Klasifikacija štete"]) if "Klasifikacija štete" in r else None
             row += 1
         
-        # 80/20 granica
         granica = pareto[pareto["Kumulativni procenat"] <= 80].shape[0]
         ws.cell(row=row + 1, column=1, value=f"📊 {granica} artikala čini 80% ukupne vrednosti")
         ws.cell(row=row + 1, column=1).font = Font(bold=True, size=11, color="0066CC")
@@ -470,43 +475,46 @@ def upisi_metrike(ws, df):
         ws.cell(row=row, column=2, value=excel_compatible(df_datum["Starost (dani)"].min()))
         row += 2
         
-        # Top 10 najstarijih
         ws.cell(row=row, column=1, value="Top 10 najstarijih artikala")
         ws.cell(row=row, column=1).font = Font(bold=True, size=11)
         row += 1
         
-        ws.cell(row=row, column=1, value="Naziv artikla")
-        ws.cell(row=row, column=2, value="Starost (dani)")
-        primeni_stil_header(ws, 2)
+        headers = ["Naziv artikla", "Starost (dani)", "Broj reklamacije"]
+        for col_idx, h in enumerate(headers, start=1):
+            ws.cell(row=row, column=col_idx, value=h)
+        primeni_stil_header(ws, len(headers))
         row += 1
         
-        najstariji = df_datum.nlargest(10, "Starost (dani)")[["Naziv artikla", "Starost (dani)"]]
+        najstariji = df_datum.nlargest(10, "Starost (dani)")[["Naziv artikla", "Starost (dani)", "Broj reklamacije"]]
         for _, r in najstariji.iterrows():
             ws.cell(row=row, column=1).value = excel_compatible(r["Naziv artikla"])
             ws.cell(row=row, column=2).value = excel_compatible(r["Starost (dani)"])
+            ws.cell(row=row, column=3).value = excel_compatible(r["Broj reklamacije"])
             row += 1
-        
         row += 2
     
-    # 3. Top 10 najskupljih
+    # 3. Top 10 najskupljih - sa brojem reklamacije
     if "Nabavna cena" in df.columns:
         ws.cell(row=row, column=1, value="TOP 10 NAJSKUPLJIH ARTIKALA")
         ws.cell(row=row, column=1).font = Font(bold=True, size=12)
         row += 1
         
-        ws.cell(row=row, column=1, value="Naziv artikla")
-        ws.cell(row=row, column=2, value="Nabavna cena (RSD)")
-        ws.cell(row=row, column=3, value="Brend")
-        primeni_stil_header(ws, 3)
+        headers = ["Broj reklamacije", "Naziv artikla", "Nabavna cena (RSD)", "Brend", "Datum obrade", "Klasifikacija reciklaže", "Klasifikacija štete"]
+        for col_idx, h in enumerate(headers, start=1):
+            ws.cell(row=row, column=col_idx, value=h)
+        primeni_stil_header(ws, len(headers))
         row += 1
         
-        najskuplji = df.nlargest(10, "Nabavna cena")[["Naziv artikla", "Nabavna cena", "Brend"]]
+        najskuplji = df.nlargest(10, "Nabavna cena")[["Broj reklamacije", "Naziv artikla", "Nabavna cena", "Brend", "Datum obrade", "Klasifikacija reciklaže", "Klasifikacija štete"]]
         for _, r in najskuplji.iterrows():
-            ws.cell(row=row, column=1).value = excel_compatible(r["Naziv artikla"])
-            ws.cell(row=row, column=2).value = excel_compatible(r["Nabavna cena"])
-            ws.cell(row=row, column=3).value = excel_compatible(r["Brend"])
+            ws.cell(row=row, column=1).value = excel_compatible(r["Broj reklamacije"])
+            ws.cell(row=row, column=2).value = excel_compatible(r["Naziv artikla"])
+            ws.cell(row=row, column=3).value = excel_compatible(r["Nabavna cena"])
+            ws.cell(row=row, column=4).value = excel_compatible(r["Brend"])
+            ws.cell(row=row, column=5).value = excel_compatible(r["Datum obrade"]) if "Datum obrade" in r else None
+            ws.cell(row=row, column=6).value = excel_compatible(r["Klasifikacija reciklaže"]) if "Klasifikacija reciklaže" in r else None
+            ws.cell(row=row, column=7).value = excel_compatible(r["Klasifikacija štete"]) if "Klasifikacija štete" in r else None
             row += 1
-        
         row += 2
     
     # 4. Detekcija duplikata
@@ -521,21 +529,22 @@ def upisi_metrike(ws, df):
             ws.cell(row=row, column=1).font = Font(bold=True, size=11, color="CC0000")
             row += 1
             
-            ws.cell(row=row, column=1, value="Serijski broj")
-            ws.cell(row=row, column=2, value="Naziv artikla")
-            ws.cell(row=row, column=3, value="Broj pojavljivanja")
-            primeni_stil_header(ws, 3)
+            headers = ["Serijski broj", "Naziv artikla", "Broj pojavljivanja", "Brojevi reklamacija"]
+            for col_idx, h in enumerate(headers, start=1):
+                ws.cell(row=row, column=col_idx, value=h)
+            primeni_stil_header(ws, len(headers))
             row += 1
             
             for serijski, group in duplikati.groupby("Serijski broj"):
                 ws.cell(row=row, column=1).value = excel_compatible(serijski)
                 ws.cell(row=row, column=2).value = excel_compatible(group["Naziv artikla"].iloc[0])
                 ws.cell(row=row, column=3).value = len(group)
+                brojevi = ", ".join([str(b) for b in group["Broj reklamacije"].tolist()])
+                ws.cell(row=row, column=4).value = brojevi
                 row += 1
         else:
             ws.cell(row=row, column=1, value="✅ Nema duplih serijskih brojeva")
             ws.cell(row=row, column=1).font = Font(bold=True, size=11, color="008800")
-        
         row += 2
     
     # 5. Prosečna vrednost po brendu
@@ -556,11 +565,10 @@ def upisi_metrike(ws, df):
             ws.cell(row=row, column=1).value = excel_compatible(r["Brend"])
             ws.cell(row=row, column=2).value = excel_compatible(r["Prosečna cena (RSD)"])
             row += 1
-        
         row += 2
     
     # Širine kolona
-    for col in [1, 2, 3, 4]:
+    for col in range(1, 8):
         ws.column_dimensions[get_column_letter(col)].width = 30
 
 # ============================
@@ -788,8 +796,7 @@ Tehnomanija
     
     except Exception as e:
         return False, f"Greška pri slanju emaila: {str(e)}"
-
-# ============================
+        # ============================
 # FUNKCIJE ZA VIZUELNE IZVEŠTAJE (STREAMLIT)
 # ============================
 
@@ -922,7 +929,6 @@ def prikazi_prevoznike(df, key_suffix=""):
 def prikazi_napredne_metrike(df):
     st.subheader("📊 Napredne metrike")
     
-    # Tabovi za napredne metrike
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📈 Pareto analiza",
         "⏳ Starost artikala",
@@ -938,14 +944,16 @@ def prikazi_napredne_metrike(df):
             pareto["Kumulativni procenat"] = (pareto["Ukupna vrednost"].cumsum() / pareto["Ukupna vrednost"].sum() * 100).round(2)
             
             fig = px.bar(pareto.head(20), x="Naziv artikla", y="Ukupna vrednost",
-                         title="Pareto analiza – Top 20 artikala po vrednosti")
+                         title="Pareto analiza – Top 20 artikala po vrednosti",
+                         hover_data=["Broj reklamacije"])
             fig.add_hline(y=pareto["Ukupna vrednost"].sum() * 0.8, line_dash="dash", line_color="red")
             st.plotly_chart(fig, use_container_width=True, key="pareto_chart")
             
             granica = pareto[pareto["Kumulativni procenat"] <= 80].shape[0]
             st.info(f"📊 **{granica}** artikala čini **80%** ukupne vrednosti reciklaže")
             
-            st.dataframe(pareto.head(20)[["Naziv artikla", "Ukupna vrednost", "Kumulativni procenat"]], use_container_width=True)
+            pareto_display = pareto.head(20)[["Broj reklamacije", "Naziv artikla", "Ukupna vrednost", "Kumulativni procenat", "Datum obrade", "Klasifikacija štete"]]
+            st.dataframe(pareto_display, use_container_width=True)
     
     with tab2:
         if "Datum obrade" in df.columns:
@@ -964,14 +972,15 @@ def prikazi_napredne_metrike(df):
             st.plotly_chart(fig, use_container_width=True, key="starost_hist")
             
             st.subheader("Top 10 najstarijih artikala")
-            st.dataframe(df_datum.nlargest(10, "Starost (dani)")[["Naziv artikla", "Starost (dani)", "Brend"]], use_container_width=True)
+            st.dataframe(df_datum.nlargest(10, "Starost (dani)")[["Naziv artikla", "Starost (dani)", "Brend", "Broj reklamacije"]], use_container_width=True)
     
     with tab3:
         if "Nabavna cena" in df.columns:
-            najskuplji = df.nlargest(10, "Nabavna cena")[["Naziv artikla", "Nabavna cena", "Brend", "Robna grupa"]]
+            najskuplji = df.nlargest(10, "Nabavna cena")[["Broj reklamacije", "Naziv artikla", "Nabavna cena", "Brend", "Robna grupa", "Datum obrade", "Klasifikacija reciklaže", "Klasifikacija štete"]]
             
             fig = px.bar(najskuplji, x="Naziv artikla", y="Nabavna cena", color="Brend",
-                         title="Top 10 najskupljih artikala")
+                         title="Top 10 najskupljih artikala",
+                         hover_data=["Broj reklamacije"])
             st.plotly_chart(fig, use_container_width=True, key="top_skupih")
             
             st.dataframe(najskuplji, use_container_width=True)
@@ -984,9 +993,10 @@ def prikazi_napredne_metrike(df):
                 
                 duplikati_sum = duplikati.groupby("Serijski broj").agg({
                     "Naziv artikla": "first",
-                    "Broj reklamacije": "count"
+                    "Broj reklamacije": lambda x: list(x)
                 }).reset_index()
-                duplikati_sum.columns = ["Serijski broj", "Naziv artikla", "Broj pojavljivanja"]
+                duplikati_sum.columns = ["Serijski broj", "Naziv artikla", "Brojevi reklamacija"]
+                duplikati_sum["Broj pojavljivanja"] = duplikati_sum["Brojevi reklamacija"].apply(len)
                 st.dataframe(duplikati_sum, use_container_width=True)
             else:
                 st.success("✅ Nema duplih serijskih brojeva")
