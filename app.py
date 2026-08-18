@@ -814,6 +814,111 @@ def prikazi_kpi(df):
         max_datum = df["Datum obrade"].max()
         st.caption(f"📅 Period: {min_datum.strftime('%d.%m.%Y') if pd.notna(min_datum) else 'N/A'} - {max_datum.strftime('%d.%m.%Y') if pd.notna(max_datum) else 'N/A'}")
 
+def prikazi_klasifikaciju_reciklaze(df, key_suffix=""):
+    st.subheader("📊 Klasifikacija reciklaže")
+    
+    if "Klasifikacija reciklaže" in df.columns:
+        klasifikacija = df["Klasifikacija reciklaže"].value_counts().reset_index()
+        klasifikacija.columns = ["Klasifikacija", "Broj artikala"]
+        
+        fig = px.pie(klasifikacija, values="Broj artikala", names="Klasifikacija", 
+                     title="Raspored po klasifikaciji reciklaže",
+                     color_discrete_sequence=px.colors.sequential.Blues_r)
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig, use_container_width=True, key=f"klas_rec_{key_suffix}")
+        
+        st.dataframe(klasifikacija, use_container_width=True)
+
+def prikazi_klasifikaciju_stete(df, key_suffix=""):
+    st.subheader("📊 Klasifikacija štete")
+    
+    if "Klasifikacija štete" in df.columns:
+        stete = df["Klasifikacija štete"].value_counts().reset_index()
+        stete.columns = ["Klasifikacija štete", "Broj artikala"]
+        
+        fig = px.bar(stete, x="Klasifikacija štete", y="Broj artikala",
+                     title="Najčešće klasifikacije štete",
+                     color="Broj artikala", color_continuous_scale="Blues")
+        fig.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig, use_container_width=True, key=f"steta_{key_suffix}")
+        
+        st.dataframe(stete, use_container_width=True)
+
+def prikazi_top_brendove(df, key_suffix=""):
+    st.subheader("🏆 Top 10 brendova")
+    
+    if "Brend" in df.columns:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            brendovi = df["Brend"].value_counts().head(10).reset_index()
+            brendovi.columns = ["Brend", "Broj artikala"]
+            fig = px.bar(brendovi, x="Brend", y="Broj artikala",
+                         title="Top 10 brendova po broju artikala",
+                         color="Broj artikala", color_continuous_scale="Blues")
+            st.plotly_chart(fig, use_container_width=True, key=f"brend_broj_{key_suffix}")
+        
+        with col2:
+            if "Nabavna cena" in df.columns and "Količina" in df.columns:
+                df["Ukupna vrednost"] = df["Nabavna cena"] * df["Količina"]
+                vrednost_brend = df.groupby("Brend")["Ukupna vrednost"].sum().sort_values(ascending=False).head(10).reset_index()
+                vrednost_brend.columns = ["Brend", "Ukupna vrednost (RSD)"]
+                fig2 = px.bar(vrednost_brend, x="Brend", y="Ukupna vrednost (RSD)",
+                              title="Top 10 brendova po ukupnoj vrednosti",
+                              color="Ukupna vrednost (RSD)", color_continuous_scale="Greens")
+                st.plotly_chart(fig2, use_container_width=True, key=f"brend_vred_{key_suffix}")
+
+def prikazi_robne_grupe(df, key_suffix=""):
+    st.subheader("📂 Top 10 robnih grupa")
+    
+    if "Robna grupa" in df.columns:
+        grupe = df["Robna grupa"].value_counts().head(10).reset_index()
+        grupe.columns = ["Robna grupa", "Broj artikala"]
+        
+        fig = px.bar(grupe, x="Robna grupa", y="Broj artikala",
+                     title="Top 10 robnih grupa",
+                     color="Broj artikala", color_continuous_scale="Reds")
+        fig.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig, use_container_width=True, key=f"grupa_{key_suffix}")
+
+def prikazi_vremenski_trend(df, key_suffix=""):
+    st.subheader("📈 Vremenski trend")
+    
+    if "Datum obrade" in df.columns:
+        df["Datum obrade"] = pd.to_datetime(df["Datum obrade"], errors="coerce")
+        df["Mesec"] = df["Datum obrade"].dt.to_period("M")
+        
+        meseci = df.groupby("Mesec").size().reset_index()
+        meseci.columns = ["Mesec", "Broj artikala"]
+        meseci["Mesec"] = meseci["Mesec"].astype(str)
+        
+        fig = px.line(meseci, x="Mesec", y="Broj artikala",
+                      title="Broj artikala po mesecima",
+                      markers=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"trend_{key_suffix}")
+
+def prikazi_prevoznike(df, key_suffix=""):
+    st.subheader("🚚 Analiza prevoznika")
+    
+    if "prevoznik" in df.columns:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            prevoznici = df["prevoznik"].value_counts().reset_index()
+            prevoznici.columns = ["Prevoznik", "Broj artikala"]
+            fig = px.pie(prevoznici, values="Broj artikala", names="Prevoznik",
+                         title="Raspored po prevoznicima")
+            st.plotly_chart(fig, use_container_width=True, key=f"prevoz_pie_{key_suffix}")
+        
+        with col2:
+            if "Klasifikacija štete" in df.columns:
+                stete_prevoz = df.groupby(["prevoznik", "Klasifikacija štete"]).size().reset_index()
+                stete_prevoz.columns = ["Prevoznik", "Klasifikacija štete", "Broj"]
+                fig2 = px.bar(stete_prevoz, x="Prevoznik", y="Broj", color="Klasifikacija štete",
+                              title="Klasifikacije štete po prevoznicima",
+                              barmode="group")
+                st.plotly_chart(fig2, use_container_width=True, key=f"prevoz_bar_{key_suffix}")
+
 def prikazi_napredne_metrike(df):
     st.subheader("📊 Napredne metrike")
     
@@ -832,11 +937,10 @@ def prikazi_napredne_metrike(df):
             pareto = df.sort_values("Ukupna vrednost", ascending=False)
             pareto["Kumulativni procenat"] = (pareto["Ukupna vrednost"].cumsum() / pareto["Ukupna vrednost"].sum() * 100).round(2)
             
-            # Pareto grafikon
             fig = px.bar(pareto.head(20), x="Naziv artikla", y="Ukupna vrednost",
                          title="Pareto analiza – Top 20 artikala po vrednosti")
             fig.add_hline(y=pareto["Ukupna vrednost"].sum() * 0.8, line_dash="dash", line_color="red")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="pareto_chart")
             
             granica = pareto[pareto["Kumulativni procenat"] <= 80].shape[0]
             st.info(f"📊 **{granica}** artikala čini **80%** ukupne vrednosti reciklaže")
@@ -855,10 +959,9 @@ def prikazi_napredne_metrike(df):
             col2.metric("⏳ Najstariji artikal", f"{df_datum['Starost (dani)'].max():.0f} dana")
             col3.metric("🆕 Najmlađi artikal", f"{df_datum['Starost (dani)'].min():.0f} dana")
             
-            # Distribucija starosti
             fig = px.histogram(df_datum, x="Starost (dani)", nbins=20,
                                title="Distribucija starosti artikala")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="starost_hist")
             
             st.subheader("Top 10 najstarijih artikala")
             st.dataframe(df_datum.nlargest(10, "Starost (dani)")[["Naziv artikla", "Starost (dani)", "Brend"]], use_container_width=True)
@@ -869,7 +972,7 @@ def prikazi_napredne_metrike(df):
             
             fig = px.bar(najskuplji, x="Naziv artikla", y="Nabavna cena", color="Brend",
                          title="Top 10 najskupljih artikala")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="top_skupih")
             
             st.dataframe(najskuplji, use_container_width=True)
     
@@ -895,114 +998,9 @@ def prikazi_napredne_metrike(df):
             
             fig = px.bar(prosek_brend, x="Brend", y="Prosečna cena (RSD)",
                          title="Top 10 brendova po prosečnoj ceni artikla")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="prosek_brend")
             
             st.dataframe(prosek_brend, use_container_width=True)
-
-def prikazi_klasifikaciju_reciklaze(df):
-    st.subheader("📊 Klasifikacija reciklaže")
-    
-    if "Klasifikacija reciklaže" in df.columns:
-        klasifikacija = df["Klasifikacija reciklaže"].value_counts().reset_index()
-        klasifikacija.columns = ["Klasifikacija", "Broj artikala"]
-        
-        fig = px.pie(klasifikacija, values="Broj artikala", names="Klasifikacija", 
-                     title="Raspored po klasifikaciji reciklaže",
-                     color_discrete_sequence=px.colors.sequential.Blues_r)
-        fig.update_traces(textposition='inside', textinfo='percent+label')
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.dataframe(klasifikacija, use_container_width=True)
-
-def prikazi_klasifikaciju_stete(df):
-    st.subheader("📊 Klasifikacija štete")
-    
-    if "Klasifikacija štete" in df.columns:
-        stete = df["Klasifikacija štete"].value_counts().reset_index()
-        stete.columns = ["Klasifikacija štete", "Broj artikala"]
-        
-        fig = px.bar(stete, x="Klasifikacija štete", y="Broj artikala",
-                     title="Najčešće klasifikacije štete",
-                     color="Broj artikala", color_continuous_scale="Blues")
-        fig.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.dataframe(stete, use_container_width=True)
-
-def prikazi_top_brendove(df):
-    st.subheader("🏆 Top 10 brendova")
-    
-    if "Brend" in df.columns:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            brendovi = df["Brend"].value_counts().head(10).reset_index()
-            brendovi.columns = ["Brend", "Broj artikala"]
-            fig = px.bar(brendovi, x="Brend", y="Broj artikala",
-                         title="Top 10 brendova po broju artikala",
-                         color="Broj artikala", color_continuous_scale="Blues")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            if "Nabavna cena" in df.columns and "Količina" in df.columns:
-                df["Ukupna vrednost"] = df["Nabavna cena"] * df["Količina"]
-                vrednost_brend = df.groupby("Brend")["Ukupna vrednost"].sum().sort_values(ascending=False).head(10).reset_index()
-                vrednost_brend.columns = ["Brend", "Ukupna vrednost (RSD)"]
-                fig2 = px.bar(vrednost_brend, x="Brend", y="Ukupna vrednost (RSD)",
-                              title="Top 10 brendova po ukupnoj vrednosti",
-                              color="Ukupna vrednost (RSD)", color_continuous_scale="Greens")
-                st.plotly_chart(fig2, use_container_width=True)
-
-def prikazi_robne_grupe(df):
-    st.subheader("📂 Top 10 robnih grupa")
-    
-    if "Robna grupa" in df.columns:
-        grupe = df["Robna grupa"].value_counts().head(10).reset_index()
-        grupe.columns = ["Robna grupa", "Broj artikala"]
-        
-        fig = px.bar(grupe, x="Robna grupa", y="Broj artikala",
-                     title="Top 10 robnih grupa",
-                     color="Broj artikala", color_continuous_scale="Reds")
-        fig.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig, use_container_width=True)
-
-def prikazi_vremenski_trend(df):
-    st.subheader("📈 Vremenski trend")
-    
-    if "Datum obrade" in df.columns:
-        df["Datum obrade"] = pd.to_datetime(df["Datum obrade"], errors="coerce")
-        df["Mesec"] = df["Datum obrade"].dt.to_period("M")
-        
-        meseci = df.groupby("Mesec").size().reset_index()
-        meseci.columns = ["Mesec", "Broj artikala"]
-        meseci["Mesec"] = meseci["Mesec"].astype(str)
-        
-        fig = px.line(meseci, x="Mesec", y="Broj artikala",
-                      title="Broj artikala po mesecima",
-                      markers=True)
-        st.plotly_chart(fig, use_container_width=True)
-
-def prikazi_prevoznike(df):
-    st.subheader("🚚 Analiza prevoznika")
-    
-    if "prevoznik" in df.columns:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            prevoznici = df["prevoznik"].value_counts().reset_index()
-            prevoznici.columns = ["Prevoznik", "Broj artikala"]
-            fig = px.pie(prevoznici, values="Broj artikala", names="Prevoznik",
-                         title="Raspored po prevoznicima")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            if "Klasifikacija štete" in df.columns:
-                stete_prevoz = df.groupby(["prevoznik", "Klasifikacija štete"]).size().reset_index()
-                stete_prevoz.columns = ["Prevoznik", "Klasifikacija štete", "Broj"]
-                fig2 = px.bar(stete_prevoz, x="Prevoznik", y="Broj", color="Klasifikacija štete",
-                              title="Klasifikacije štete po prevoznicima",
-                              barmode="group")
-                st.plotly_chart(fig2, use_container_width=True)
 
 def prikazi_detaljnu_tabelu(df):
     st.subheader("📋 Detaljna tabela sa filterima")
@@ -1094,39 +1092,39 @@ if uploaded_file is not None:
             
             col1, col2 = st.columns(2)
             with col1:
-                prikazi_klasifikaciju_reciklaze(df)
+                prikazi_klasifikaciju_reciklaze(df, key_suffix="pregled")
             with col2:
-                prikazi_klasifikaciju_stete(df)
+                prikazi_klasifikaciju_stete(df, key_suffix="pregled")
             st.markdown("---")
             
-            prikazi_top_brendove(df)
+            prikazi_top_brendove(df, key_suffix="pregled")
             st.markdown("---")
             
             col1, col2 = st.columns(2)
             with col1:
-                prikazi_robne_grupe(df)
+                prikazi_robne_grupe(df, key_suffix="pregled")
             with col2:
-                prikazi_vremenski_trend(df)
+                prikazi_vremenski_trend(df, key_suffix="pregled")
             st.markdown("---")
             
-            prikazi_prevoznike(df)
+            prikazi_prevoznike(df, key_suffix="pregled")
         
         with tab2:
             prikazi_napredne_metrike(df)
         
         with tab3:
             st.subheader("🏷️ Sve analize")
-            prikazi_klasifikaciju_reciklaze(df)
+            prikazi_klasifikaciju_reciklaze(df, key_suffix="analize")
             st.markdown("---")
-            prikazi_klasifikaciju_stete(df)
+            prikazi_klasifikaciju_stete(df, key_suffix="analize")
             st.markdown("---")
-            prikazi_top_brendove(df)
+            prikazi_top_brendove(df, key_suffix="analize")
             st.markdown("---")
-            prikazi_robne_grupe(df)
+            prikazi_robne_grupe(df, key_suffix="analize")
             st.markdown("---")
-            prikazi_vremenski_trend(df)
+            prikazi_vremenski_trend(df, key_suffix="analize")
             st.markdown("---")
-            prikazi_prevoznike(df)
+            prikazi_prevoznike(df, key_suffix="analize")
         
         with tab4:
             prikazi_detaljnu_tabelu(df)
