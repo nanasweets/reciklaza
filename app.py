@@ -107,35 +107,28 @@ def spoji(reciklaza, lookup):
     return df[finalne]
 
 # ============================
-# POMOĆNA FUNKCIJA ZA EXCEL
+# POMOĆNE FUNKCIJE ZA STIL
 # ============================
 
 def excel_compatible(value):
-    """Pretvara vrednost u oblik koji Excel može da prihvati."""
     if pd.isna(value) or value is None:
         return None
     if isinstance(value, (int, float, str, bool)):
         return value
     if isinstance(value, (pd.Timestamp, datetime)):
         return value
-    if isinstance(value, pd.Timedelta):
-        return None  # ili možda vrednost u sekundama
-    # Svi ostali tipovi -> pretvori u string
     return str(value)
 
-def formatiraj_i_sacuvaj(df):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "zbirno"
-    
-    lookup_kolone = set(MAPPING.keys())
+def primeni_stil_header(ws, max_col, lookup_kolone=None):
+    """Primenjuje stil na header red (prvi red)."""
     thin = Side(style="thin", color="BFBFBF")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     
-    # Header
-    for col_idx, kol in enumerate(df.columns, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=kol)
-        if kol in lookup_kolone:
+    for col_idx in range(1, max_col + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        kol = ws.cell(row=1, column=col_idx).value
+        
+        if lookup_kolone and kol in lookup_kolone:
             cell.fill = PatternFill("solid", fgColor=LOOKUP_BG)
             cell.font = Font(bold=True, color=LOOKUP_FONT, name="Arial", size=10)
         else:
@@ -144,24 +137,28 @@ def formatiraj_i_sacuvaj(df):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = border
     ws.row_dimensions[1].height = 36
+
+def primeni_stil_podaci(ws, max_col, max_row, lookup_kolone=None):
+    """Primenjuje stil na podatke (redovi 2 do max_row)."""
+    thin = Side(style="thin", color="BFBFBF")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
     
-    # Podaci
-    for row_idx, row in enumerate(df.itertuples(index=False), start=2):
-        for col_idx, value in enumerate(row, start=1):
+    for row_idx in range(2, max_row + 1):
+        for col_idx in range(1, max_col + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
-            # Koristi pomoćnu funkciju
-            cell.value = excel_compatible(value)
+            col_name = ws.cell(row=1, column=col_idx).value
             
-            col_name = df.columns[col_idx - 1]
             cell.font = Font(name="Arial", size=10)
             cell.border = border
             cell.alignment = Alignment(vertical="center")
-            if col_name in lookup_kolone:
+            
+            if lookup_kolone and col_name in lookup_kolone:
                 cell.fill = PatternFill("solid", fgColor="EEF3FB")
             elif row_idx % 2 == 0:
                 cell.fill = PatternFill("solid", fgColor="F5F8FD")
-    
-    # Širine kolona
+
+def prilagodi_sirine(ws, df):
+    """Prilagođava širine kolona na osnovu sadržaja."""
     for col_idx, kol in enumerate(df.columns, start=1):
         max_len = len(str(kol))
         for row_idx in range(2, min(len(df) + 2, 52)):
@@ -169,22 +166,323 @@ def formatiraj_i_sacuvaj(df):
             if val:
                 max_len = max(max_len, min(len(str(val)), 40))
         ws.column_dimensions[get_column_letter(col_idx)].width = max_len + 3
-    
-    ws.freeze_panes = "A2"
-    
-    # Legenda
-    legenda_row = len(df) + 3
+
+def dodaj_legendu(ws, legenda_row, lookup_kolone=None):
+    """Dodaje legendu na dno lista."""
     ws.cell(row=legenda_row, column=1, value="Legenda:").font = Font(bold=True, name="Arial", size=9)
     ws.cell(row=legenda_row + 1, column=1, value="■ Tamno plava = ručno uneti podaci").font = Font(name="Arial", size=9, color=HEADER_BG)
     ws.cell(row=legenda_row + 2, column=1, value="■ Svetlo plava = automatski povučeno").font = Font(name="Arial", size=9, color=LOOKUP_FONT)
     ws.cell(row=legenda_row + 4, column=1, value=f"Generisano: {datetime.now().strftime('%d.%m.%Y %H:%M')}").font = Font(italic=True, name="Arial", size=9, color="888888")
+
+# ============================
+# FUNKCIJE ZA UPIS SHEET-OVA
+# ============================
+
+def upisi_zbirno(ws, df):
+    """Sheet: zbirno – svi podaci."""
+    lookup_kolone = set(MAPPING.keys())
+    
+    # Header
+    for col_idx, kol in enumerate(df.columns, start=1):
+        ws.cell(row=1, column=col_idx, value=kol)
+    primeni_stil_header(ws, len(df.columns), lookup_kolone)
+    
+    # Podaci
+    for row_idx, row in enumerate(df.itertuples(index=False), start=2):
+        for col_idx, value in enumerate(row, start=1):
+            ws.cell(row=row_idx, column=col_idx).value = excel_compatible(value)
+    primeni_stil_podaci(ws, len(df.columns), len(df) + 1, lookup_kolone)
+    prilagodi_sirine(ws, df)
+    
+    # Legenda
+    dodaj_legendu(ws, len(df) + 3, lookup_kolone)
+    
+    # Zamrzni header
+    ws.freeze_panes = "A2"
+
+def upisi_kpi(ws, df):
+    """Sheet: KPI – ključni pokazatelji."""
+    # Izračunavanje
+    ukupno_artikala = df["Količina"].sum() if "Količina" in df.columns else 0
+    ukupna_vrednost = (df["Nabavna cena"] * df["Količina"]).sum() if "Nabavna cena" in df.columns and "Količina" in df.columns else 0
+    broj_brendova = df["Brend"].nunique() if "Brend" in df.columns else 0
+    broj_grupa = df["Robna grupa"].nunique() if "Robna grupa" in df.columns else 0
+    
+    if "Datum obrade" in df.columns:
+        df_datum = df.copy()
+        df_datum["Datum obrade"] = pd.to_datetime(df_datum["Datum obrade"], errors="coerce")
+        min_datum = df_datum["Datum obrade"].min()
+        max_datum = df_datum["Datum obrade"].max()
+        period = f"{min_datum.strftime('%d.%m.%Y') if pd.notna(min_datum) else 'N/A'} - {max_datum.strftime('%d.%m.%Y') if pd.notna(max_datum) else 'N/A'}"
+    else:
+        period = "N/A"
+    
+    # Upis
+    podaci = [
+        ["Ključni pokazatelj", "Vrednost"],
+        ["Ukupan broj artikala", ukupno_artikala],
+        ["Ukupna vrednost (RSD)", f"{ukupna_vrednost:,.2f}"],
+        ["Broj brendova", broj_brendova],
+        ["Broj robnih grupa", broj_grupa],
+        ["Period", period],
+        ["Broj redova", len(df)],
+    ]
+    
+    for row_idx, row in enumerate(podaci, start=1):
+        for col_idx, value in enumerate(row, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=value)
+    
+    # Stil
+    for col_idx in [1, 2]:
+        ws.column_dimensions[get_column_letter(col_idx)].width = 25
+    
+    # Bold za prvu kolonu
+    for row_idx in range(1, len(podaci) + 1):
+        ws.cell(row=row_idx, column=1).font = Font(bold=True, name="Arial", size=11)
+        ws.cell(row=row_idx, column=2).font = Font(name="Arial", size=11)
+    
+    # Naslov
+    ws.cell(row=1, column=1).font = Font(bold=True, size=12, color=HEADER_BG)
+    ws.cell(row=1, column=2).font = Font(bold=True, size=12, color=HEADER_BG)
+
+def upisi_grupisano(ws, df, kolona, naslov):
+    """Sheet: grupisanje po koloni (npr. klasifikacija reciklaže ili štete)."""
+    if kolona not in df.columns:
+        ws.cell(row=1, column=1, value=f"Kolona '{kolona}' ne postoji")
+        return
+    
+    grupisan = df[kolona].value_counts().reset_index()
+    grupisan.columns = [kolona, "Broj artikala"]
+    
+    # Header
+    ws.cell(row=1, column=1, value=kolona)
+    ws.cell(row=1, column=2, value="Broj artikala")
+    primeni_stil_header(ws, 2)
+    
+    # Podaci
+    for row_idx, row in enumerate(grupisan.itertuples(index=False), start=2):
+        ws.cell(row=row_idx, column=1).value = excel_compatible(row[0])
+        ws.cell(row=row_idx, column=2).value = excel_compatible(row[1])
+    primeni_stil_podaci(ws, 2, len(grupisan) + 1)
+    
+    ws.column_dimensions['A'].width = 40
+    ws.column_dimensions['B'].width = 20
+
+def upisi_top_brendove(ws, df):
+    """Sheet: Top 10 brendova po broju i vrednosti."""
+    if "Brend" not in df.columns:
+        ws.cell(row=1, column=1, value="Kolona 'Brend' ne postoji")
+        return
+    
+    # Po broju
+    brendovi_broj = df["Brend"].value_counts().head(10).reset_index()
+    brendovi_broj.columns = ["Brend", "Broj artikala"]
+    
+    # Po vrednosti
+    if "Nabavna cena" in df.columns and "Količina" in df.columns:
+        df["Ukupna vrednost"] = df["Nabavna cena"] * df["Količina"]
+        brendovi_vred = df.groupby("Brend")["Ukupna vrednost"].sum().sort_values(ascending=False).head(10).reset_index()
+        brendovi_vred.columns = ["Brend", "Ukupna vrednost (RSD)"]
+    else:
+        brendovi_vred = pd.DataFrame(columns=["Brend", "Ukupna vrednost (RSD)"])
+    
+    # Upis - po broju
+    ws.cell(row=1, column=1, value="Top 10 brendova po broju artikala")
+    ws.cell(row=2, column=1, value="Brend")
+    ws.cell(row=2, column=2, value="Broj artikala")
+    
+    for idx, row in enumerate(brendovi_broj.itertuples(index=False), start=3):
+        ws.cell(row=idx, column=1).value = excel_compatible(row[0])
+        ws.cell(row=idx, column=2).value = excel_compatible(row[1])
+    
+    # Upis - po vrednosti
+    ws.cell(row=1, column=4, value="Top 10 brendova po ukupnoj vrednosti")
+    ws.cell(row=2, column=4, value="Brend")
+    ws.cell(row=2, column=5, value="Ukupna vrednost (RSD)")
+    
+    for idx, row in enumerate(brendovi_vred.itertuples(index=False), start=3):
+        ws.cell(row=idx, column=4).value = excel_compatible(row[0])
+        ws.cell(row=idx, column=5).value = excel_compatible(row[1])
+    
+    # Stil
+    for col in [1, 2, 4, 5]:
+        ws.column_dimensions[get_column_letter(col)].width = 25
+    
+    # Header stil
+    for row in [1, 2]:
+        for col in [1, 2, 4, 5]:
+            cell = ws.cell(row=row, column=col)
+            if row == 1:
+                cell.font = Font(bold=True, size=12, color=HEADER_BG)
+            else:
+                cell.font = Font(bold=True, size=11, color=HEADER_BG)
+
+def upisi_top_grupe(ws, df):
+    """Sheet: Top 10 robnih grupa."""
+    if "Robna grupa" not in df.columns:
+        ws.cell(row=1, column=1, value="Kolona 'Robna grupa' ne postoji")
+        return
+    
+    grupe = df["Robna grupa"].value_counts().head(10).reset_index()
+    grupe.columns = ["Robna grupa", "Broj artikala"]
+    
+    ws.cell(row=1, column=1, value="Robna grupa")
+    ws.cell(row=1, column=2, value="Broj artikala")
+    primeni_stil_header(ws, 2)
+    
+    for row_idx, row in enumerate(grupe.itertuples(index=False), start=2):
+        ws.cell(row=row_idx, column=1).value = excel_compatible(row[0])
+        ws.cell(row=row_idx, column=2).value = excel_compatible(row[1])
+    primeni_stil_podaci(ws, 2, len(grupe) + 1)
+    
+    ws.column_dimensions['A'].width = 40
+    ws.column_dimensions['B'].width = 20
+
+def upisi_vremenski_trend(ws, df):
+    """Sheet: Vremenski trend – po mesecima."""
+    if "Datum obrade" not in df.columns:
+        ws.cell(row=1, column=1, value="Kolona 'Datum obrade' ne postoji")
+        return
+    
+    df_datum = df.copy()
+    df_datum["Datum obrade"] = pd.to_datetime(df_datum["Datum obrade"], errors="coerce")
+    df_datum["Mesec"] = df_datum["Datum obrade"].dt.to_period("M")
+    
+    # Grupisanje po mesecima
+    trend = df_datum.groupby("Mesec").size().reset_index()
+    trend.columns = ["Mesec", "Broj artikala"]
+    trend["Mesec"] = trend["Mesec"].astype(str)
+    
+    # Vrednost po mesecima
+    if "Nabavna cena" in df.columns and "Količina" in df.columns:
+        df_datum["Ukupna vrednost"] = df_datum["Nabavna cena"] * df_datum["Količina"]
+        vrednost_po_mesecu = df_datum.groupby("Mesec")["Ukupna vrednost"].sum().reset_index()
+        vrednost_po_mesecu.columns = ["Mesec", "Ukupna vrednost (RSD)"]
+        vrednost_po_mesecu["Mesec"] = vrednost_po_mesecu["Mesec"].astype(str)
+        trend = trend.merge(vrednost_po_mesecu, on="Mesec", how="left")
+    
+    # Upis
+    ws.cell(row=1, column=1, value="Mesec")
+    ws.cell(row=1, column=2, value="Broj artikala")
+    if "Ukupna vrednost (RSD)" in trend.columns:
+        ws.cell(row=1, column=3, value="Ukupna vrednost (RSD)")
+        primeni_stil_header(ws, 3)
+    else:
+        primeni_stil_header(ws, 2)
+    
+    for row_idx, row in enumerate(trend.itertuples(index=False), start=2):
+        ws.cell(row=row_idx, column=1).value = excel_compatible(row[0])
+        ws.cell(row=row_idx, column=2).value = excel_compatible(row[1])
+        if len(row) > 2:
+            ws.cell(row=row_idx, column=3).value = excel_compatible(row[2])
+    
+    primeni_stil_podaci(ws, len(trend.columns), len(trend) + 1)
+    
+    for col_idx in range(1, len(trend.columns) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 20
+
+def upisi_prevoznike(ws, df):
+    """Sheet: Po prevozniku."""
+    if "prevoznik" not in df.columns:
+        ws.cell(row=1, column=1, value="Kolona 'prevoznik' ne postoji")
+        return
+    
+    # Po prevozniku
+    prevoznici = df["prevoznik"].value_counts().reset_index()
+    prevoznici.columns = ["Prevoznik", "Broj artikala"]
+    
+    # Štete po prevozniku
+    if "Klasifikacija štete" in df.columns:
+        stete_prevoz = df.groupby(["prevoznik", "Klasifikacija štete"]).size().reset_index()
+        stete_prevoz.columns = ["Prevoznik", "Klasifikacija štete", "Broj"]
+    
+    # Upis
+    ws.cell(row=1, column=1, value="Prevoznik")
+    ws.cell(row=1, column=2, value="Broj artikala")
+    ws.cell(row=1, column=4, value="Štete po prevozniku")
+    ws.cell(row=2, column=4, value="Prevoznik")
+    ws.cell(row=2, column=5, value="Klasifikacija štete")
+    ws.cell(row=2, column=6, value="Broj")
+    
+    primeni_stil_header(ws, 2)
+    for col in [4, 5, 6]:
+        ws.cell(row=1, column=col).font = Font(bold=True, size=11, color=HEADER_BG)
+        ws.cell(row=2, column=col).font = Font(bold=True, size=10, color=HEADER_BG)
+    
+    # Podaci - prevoznici
+    for row_idx, row in enumerate(prevoznici.itertuples(index=False), start=2):
+        ws.cell(row=row_idx, column=1).value = excel_compatible(row[0])
+        ws.cell(row=row_idx, column=2).value = excel_compatible(row[1])
+    primeni_stil_podaci(ws, 2, len(prevoznici) + 1)
+    
+    # Podaci - štete
+    if "Klasifikacija štete" in df.columns:
+        for row_idx, row in enumerate(stete_prevoz.itertuples(index=False), start=3):
+            ws.cell(row=row_idx, column=4).value = excel_compatible(row[0])
+            ws.cell(row=row_idx, column=5).value = excel_compatible(row[1])
+            ws.cell(row=row_idx, column=6).value = excel_compatible(row[2])
+        primeni_stil_podaci(ws, 6, len(stete_prevoz) + 3)
+    
+    for col in [1, 2, 4, 5, 6]:
+        ws.column_dimensions[get_column_letter(col)].width = 25
+
+# ============================
+# GLAVNA FUNKCIJA ZA EXCEL
+# ============================
+
+def formatiraj_i_sacuvaj(df):
+    """
+    Pravi Excel fajl sa više sheet-ova:
+    1. zbirno – svi podaci
+    2. KPI – ključni pokazatelji
+    3. Po klasifikaciji – klasifikacija reciklaže
+    4. Po šteti – klasifikacija štete
+    5. Top brendovi – top 10 brendova
+    6. Top grupe – top 10 robnih grupa
+    7. Vremenski trend – mesečni pregled
+    8. Po prevozniku – analiza prevoznika
+    """
+    wb = Workbook()
+    
+    # 1. zbirno
+    ws = wb.active
+    ws.title = "zbirno"
+    upisi_zbirno(ws, df)
+    
+    # 2. KPI
+    ws = wb.create_sheet("KPI")
+    upisi_kpi(ws, df)
+    
+    # 3. Po klasifikaciji
+    ws = wb.create_sheet("Po klasifikaciji")
+    upisi_grupisano(ws, df, "Klasifikacija reciklaže", "Klasifikacija reciklaže")
+    
+    # 4. Po šteti
+    ws = wb.create_sheet("Po šteti")
+    upisi_grupisano(ws, df, "Klasifikacija štete", "Klasifikacija štete")
+    
+    # 5. Top brendovi
+    ws = wb.create_sheet("Top brendovi")
+    upisi_top_brendove(ws, df)
+    
+    # 6. Top grupe
+    ws = wb.create_sheet("Top grupe")
+    upisi_top_grupe(ws, df)
+    
+    # 7. Vremenski trend
+    ws = wb.create_sheet("Vremenski trend")
+    upisi_vremenski_trend(ws, df)
+    
+    # 8. Po prevozniku
+    ws = wb.create_sheet("Po prevozniku")
+    upisi_prevoznike(ws, df)
     
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue()
 
 # ============================
-# FUNKCIJE ZA IZVEŠTAJE
+# FUNKCIJE ZA VIZUELNE IZVEŠTAJE (STREAMLIT)
 # ============================
 
 def prikazi_kpi(df):
@@ -250,7 +548,6 @@ def prikazi_top_brendove(df):
                      color="Broj artikala", color_continuous_scale="Blues")
         st.plotly_chart(fig, use_container_width=True)
         
-        # Vrednost po brendovima
         if "Nabavna cena" in df.columns and "Količina" in df.columns:
             df["Ukupna vrednost"] = df["Nabavna cena"] * df["Količina"]
             vrednost_brend = df.groupby("Brend")["Ukupna vrednost"].sum().sort_values(ascending=False).head(10).reset_index()
@@ -301,7 +598,6 @@ def prikazi_prevoznike(df):
                      title="Raspored po prevoznicima")
         st.plotly_chart(fig, use_container_width=True)
         
-        # Štete po prevozniku
         if "Klasifikacija štete" in df.columns:
             stete_prevoz = df.groupby(["prevoznik", "Klasifikacija štete"]).size().reset_index()
             stete_prevoz.columns = ["Prevoznik", "Klasifikacija štete", "Broj"]
@@ -314,7 +610,6 @@ def prikazi_prevoznike(df):
 def prikazi_detaljnu_tabelu(df):
     st.subheader("📋 Detaljna tabela sa filterima")
     
-    # Filteri
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -332,7 +627,6 @@ def prikazi_detaljnu_tabelu(df):
             klas = ["Sve"] + sorted(df["Klasifikacija reciklaže"].dropna().unique().tolist())
             izabrana_klas = st.selectbox("Filter po klasifikaciji reciklaže", klas)
     
-    # Aplikacija filtera
     df_filtered = df.copy()
     if "Brend" in df.columns and izabrani_brend != "Svi":
         df_filtered = df_filtered[df_filtered["Brend"] == izabrani_brend]
@@ -345,7 +639,7 @@ def prikazi_detaljnu_tabelu(df):
     st.caption(f"Prikazano {len(df_filtered)} od {len(df)} redova")
 
 # ============================
-# STREAMLIT UI
+# GLAVNI DEO – STREAMLIT UI
 # ============================
 
 st.title("🔄 Izveštaj o reciklaži")
@@ -369,45 +663,58 @@ if uploaded_file is not None:
         # IZVEŠTAJI
         # ======================
         
-        # 1. KPI
         prikazi_kpi(df)
         st.markdown("---")
         
-        # 2. Klasifikacija reciklaže
         prikazi_klasifikaciju_reciklaze(df)
         st.markdown("---")
         
-        # 3. Klasifikacija štete
         prikazi_klasifikaciju_stete(df)
         st.markdown("---")
         
-        # 4. Top brendovi
         prikazi_top_brendove(df)
         st.markdown("---")
         
-        # 5. Robne grupe
         prikazi_robne_grupe(df)
         st.markdown("---")
         
-        # 6. Vremenski trend
         prikazi_vremenski_trend(df)
         st.markdown("---")
         
-        # 7. Prevoznici
         prikazi_prevoznike(df)
         st.markdown("---")
         
-        # 8. Detaljna tabela
         prikazi_detaljnu_tabelu(df)
         st.markdown("---")
         
-        # 9. Preuzimanje
-        st.subheader("📥 Preuzimanje")
+        # ======================
+        # PREUZIMANJE
+        # ======================
         
-        excel_data = formatiraj_i_sacuvaj(df)
-        st.download_button(
-            label="📥 Preuzmi Excel fajl sa izveštajem",
-            data=excel_data,
-            file_name=f"Izvestaj_o_reciklazi_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.subheader("📥 Preuzimanje izveštaja")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.info("""
+            📋 **Excel izveštaj sadrži 8 sheet-ova:**
+            1. **zbirno** – svi spojeni podaci
+            2. **KPI** – ključni pokazatelji
+            3. **Po klasifikaciji** – analiza po vrstama reciklaže
+            4. **Po šteti** – analiza po vrstama štete
+            5. **Top brendovi** – top 10 brendova
+            6. **Top grupe** – top 10 robnih grupa
+            7. **Vremenski trend** – mesečni pregled
+            8. **Po prevozniku** – analiza prevoznika
+            """)
+        
+        with col2:
+            excel_data = formatiraj_i_sacuvaj(df)
+            st.download_button(
+                label="📥 Preuzmi Excel izveštaj",
+                data=excel_data,
+                file_name=f"Izvestaj_o_reciklazi_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            st.caption("📁 Veličina fajla: ~{:.1f} KB".format(len(excel_data) / 1024))
