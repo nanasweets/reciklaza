@@ -106,6 +106,23 @@ def spoji(reciklaza, lookup):
     finalne = [c for c in KOLONE_OUTPUT if c in df.columns] + extras
     return df[finalne]
 
+# ============================
+# POMOĆNA FUNKCIJA ZA EXCEL
+# ============================
+
+def excel_compatible(value):
+    """Pretvara vrednost u oblik koji Excel može da prihvati."""
+    if pd.isna(value) or value is None:
+        return None
+    if isinstance(value, (int, float, str, bool)):
+        return value
+    if isinstance(value, (pd.Timestamp, datetime)):
+        return value
+    if isinstance(value, pd.Timedelta):
+        return None  # ili možda vrednost u sekundama
+    # Svi ostali tipovi -> pretvori u string
+    return str(value)
+
 def formatiraj_i_sacuvaj(df):
     wb = Workbook()
     ws = wb.active
@@ -115,6 +132,7 @@ def formatiraj_i_sacuvaj(df):
     thin = Side(style="thin", color="BFBFBF")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     
+    # Header
     for col_idx, kol in enumerate(df.columns, start=1):
         cell = ws.cell(row=1, column=col_idx, value=kol)
         if kol in lookup_kolone:
@@ -127,13 +145,13 @@ def formatiraj_i_sacuvaj(df):
         cell.border = border
     ws.row_dimensions[1].height = 36
     
+    # Podaci
     for row_idx, row in enumerate(df.itertuples(index=False), start=2):
         for col_idx, value in enumerate(row, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
-            if pd.isna(value) or (isinstance(value, str) and value.lower() in ["nan", "none", ""]):
-                cell.value = None
-            else:
-                cell.value = value
+            # Koristi pomoćnu funkciju
+            cell.value = excel_compatible(value)
+            
             col_name = df.columns[col_idx - 1]
             cell.font = Font(name="Arial", size=10)
             cell.border = border
@@ -143,6 +161,7 @@ def formatiraj_i_sacuvaj(df):
             elif row_idx % 2 == 0:
                 cell.fill = PatternFill("solid", fgColor="F5F8FD")
     
+    # Širine kolona
     for col_idx, kol in enumerate(df.columns, start=1):
         max_len = len(str(kol))
         for row_idx in range(2, min(len(df) + 2, 52)):
@@ -153,6 +172,7 @@ def formatiraj_i_sacuvaj(df):
     
     ws.freeze_panes = "A2"
     
+    # Legenda
     legenda_row = len(df) + 3
     ws.cell(row=legenda_row, column=1, value="Legenda:").font = Font(bold=True, name="Arial", size=9)
     ws.cell(row=legenda_row + 1, column=1, value="■ Tamno plava = ručno uneti podaci").font = Font(name="Arial", size=9, color=HEADER_BG)
