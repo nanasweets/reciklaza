@@ -615,37 +615,91 @@ def formatiraj_i_sacuvaj(df):
 # ============================
 
 def generisi_pdf(df):
-    """Generiše PDF izveštaj sa svim grafikonima i metrikama"""
+    """Generiše kompletan PDF izveštaj sa svim grafikonima, tabelama i metrikama"""
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1*cm, leftMargin=1*cm, topMargin=1*cm, bottomMargin=1*cm)
-    styles = getSampleStyleSheet()
+    
+    # Pravimo listu za elemente
     elements = []
     
-    # Naslov
+    # Registrujemo font za srpska slova (podrazumevani Helvetica podržava latinicu)
+    styles = getSampleStyleSheet()
+    
+    # Dodajemo stil za naslov sa srpskim slovima
     naslov_style = ParagraphStyle(
         'Naslov',
         parent=styles['Heading1'],
         fontSize=24,
         textColor=colors.HexColor('#1F4E79'),
         alignment=1,  # centar
-        spaceAfter=30
+        spaceAfter=30,
+        fontName='Helvetica'  # Helvetica podržava latinicu
     )
-    elements.append(Paragraph("Izveštaj o reciklaži", naslov_style))
-    elements.append(Paragraph(f"Generisano: {datetime.now().strftime('%d.%m.%Y %H:%M')}", styles['Normal']))
-    elements.append(Spacer(1, 20))
     
-    # KPI
-    elements.append(Paragraph("Ključni pokazatelji", styles['Heading2']))
+    # Stil za podnaslove
+    podnaslov_style = ParagraphStyle(
+        'Podnaslov',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#1F4E79'),
+        spaceAfter=12,
+        fontName='Helvetica'
+    )
+    
+    # Stil za normalan tekst
+    normal_style = ParagraphStyle(
+        'Normalni',
+        parent=styles['Normal'],
+        fontSize=10,
+        fontName='Helvetica'
+    )
+    
+    # Stil za tabelu (naslov)
+    tabela_naslov_style = ParagraphStyle(
+        'TabelaNaslov',
+        parent=styles['Normal'],
+        fontSize=9,
+        fontName='Helvetica',
+        textColor=colors.white,
+        alignment=1
+    )
+    
+    # Stil za tabelu (podaci)
+    tabela_cell_style = ParagraphStyle(
+        'TabelaCell',
+        parent=styles['Normal'],
+        fontSize=8,
+        fontName='Helvetica'
+    )
+    
+    # Pravimo dokument
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1*cm, leftMargin=1*cm, topMargin=1*cm, bottomMargin=1*cm)
+    
+    # ============================================================
+    # 1. NASLOVNA STRANA
+    # ============================================================
+    elements.append(Paragraph("Izveštaj o reciklaži", naslov_style))
+    elements.append(Spacer(1, 10))
+    elements.append(Paragraph(f"Generisano: {datetime.now().strftime('%d.%m.%Y %H:%M')}", normal_style))
+    elements.append(Spacer(1, 30))
+    
+    # ============================================================
+    # 2. KPI - KLJUČNI POKAZATELJI
+    # ============================================================
+    elements.append(Paragraph("Ključni pokazatelji", podnaslov_style))
+    
     ukupno = df["Količina"].sum() if "Količina" in df.columns else 0
     vrednost = (df["Nabavna cena"] * df["Količina"]).sum() if "Nabavna cena" in df.columns and "Količina" in df.columns else 0
     brendovi = df["Brend"].nunique() if "Brend" in df.columns else 0
+    grupe = df["Robna grupa"].nunique() if "Robna grupa" in df.columns else 0
     
     kpi_data = [
         ["Ukupno artikala", f"{ukupno:,}"],
         ["Ukupna vrednost", f"{vrednost:,.2f} RSD"],
         ["Broj brendova", str(brendovi)],
+        ["Broj robnih grupa", str(grupe)],
         ["Broj redova", str(len(df))]
     ]
+    
     kpi_table = Table(kpi_data, colWidths=[6*cm, 6*cm])
     kpi_table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
@@ -654,12 +708,15 @@ def generisi_pdf(df):
         ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]))
     elements.append(kpi_table)
     elements.append(Spacer(1, 20))
     
-    # Klasifikacije
-    elements.append(Paragraph("Klasifikacija reciklaže", styles['Heading2']))
+    # ============================================================
+    # 3. KLASIFIKACIJA RECIKLAŽE
+    # ============================================================
+    elements.append(Paragraph("Klasifikacija reciklaže", podnaslov_style))
     if "Klasifikacija reciklaže" in df.columns:
         klas_data = df["Klasifikacija reciklaže"].value_counts().head(10).reset_index().values.tolist()
         klas_data.insert(0, ["Klasifikacija", "Broj"])
@@ -671,12 +728,35 @@ def generisi_pdf(df):
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
             ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
         elements.append(klas_table)
     elements.append(Spacer(1, 20))
     
-    # Top brendovi
-    elements.append(Paragraph("Top 10 brendova", styles['Heading2']))
+    # ============================================================
+    # 4. KLASIFIKACIJA ŠTETE
+    # ============================================================
+    elements.append(Paragraph("Klasifikacija štete", podnaslov_style))
+    if "Klasifikacija štete" in df.columns:
+        steta_data = df["Klasifikacija štete"].value_counts().head(10).reset_index().values.tolist()
+        steta_data.insert(0, ["Klasifikacija štete", "Broj"])
+        steta_table = Table(steta_data, colWidths=[7*cm, 4*cm])
+        steta_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elements.append(steta_table)
+    elements.append(Spacer(1, 20))
+    
+    # ============================================================
+    # 5. TOP 10 BRENDOVA
+    # ============================================================
+    elements.append(Paragraph("Top 10 brendova", podnaslov_style))
     if "Brend" in df.columns:
         brend_data = df["Brend"].value_counts().head(10).reset_index().values.tolist()
         brend_data.insert(0, ["Brend", "Broj artikala"])
@@ -688,36 +768,212 @@ def generisi_pdf(df):
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
             ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
         elements.append(brend_table)
     elements.append(Spacer(1, 20))
     
-    # Starost artikala
+    # ============================================================
+    # 6. TOP 10 ROBNIH GRUPA
+    # ============================================================
+    elements.append(Paragraph("Top 10 robnih grupa", podnaslov_style))
+    if "Robna grupa" in df.columns:
+        grupa_data = df["Robna grupa"].value_counts().head(10).reset_index().values.tolist()
+        grupa_data.insert(0, ["Robna grupa", "Broj artikala"])
+        grupa_table = Table(grupa_data, colWidths=[5*cm, 5*cm])
+        grupa_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elements.append(grupa_table)
+    elements.append(Spacer(1, 20))
+    
+    # ============================================================
+    # 7. VREMENSKI TREND
+    # ============================================================
+    elements.append(Paragraph("Vremenski trend", podnaslov_style))
     if "Datum obrade" in df.columns:
-        elements.append(Paragraph("Starost artikala", styles['Heading2']))
+        df_datum = df.copy()
+        df_datum["Datum obrade"] = pd.to_datetime(df_datum["Datum obrade"], errors="coerce")
+        df_datum["Mesec"] = df_datum["Datum obrade"].dt.to_period("M")
+        trend = df_datum.groupby("Mesec").size().reset_index()
+        trend.columns = ["Mesec", "Broj artikala"]
+        trend["Mesec"] = trend["Mesec"].astype(str)
+        
+        trend_data = trend.values.tolist()
+        trend_data.insert(0, ["Mesec", "Broj artikala"])
+        trend_table = Table(trend_data, colWidths=[3*cm, 3*cm])
+        trend_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elements.append(trend_table)
+    elements.append(Spacer(1, 20))
+    
+    # ============================================================
+    # 8. ANALIZA PREVOZNIKA
+    # ============================================================
+    elements.append(Paragraph("Analiza prevoznika", podnaslov_style))
+    if "prevoznik" in df.columns:
+        prevoz_data = df["prevoznik"].value_counts().head(10).reset_index().values.tolist()
+        prevoz_data.insert(0, ["Prevoznik", "Broj artikala"])
+        prevoz_table = Table(prevoz_data, colWidths=[5*cm, 5*cm])
+        prevoz_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elements.append(prevoz_table)
+    elements.append(Spacer(1, 20))
+    
+    # ============================================================
+    # 9. NAPREDNE METRIKE
+    # ============================================================
+    elements.append(Paragraph("Napredne metrike", podnaslov_style))
+    
+    # 9a. Pareto analiza
+    if "Nabavna cena" in df.columns and "Količina" in df.columns:
+        elements.append(Paragraph("Pareto analiza (80/20)", normal_style))
+        df["Ukupna vrednost"] = df["Nabavna cena"] * df["Količina"]
+        pareto = df.sort_values("Ukupna vrednost", ascending=False)
+        pareto["Kumulativni procenat"] = (pareto["Ukupna vrednost"].cumsum() / pareto["Ukupna vrednost"].sum() * 100).round(2)
+        
+        pareto_data = pareto.head(10)[["Broj reklamacije", "Naziv artikla", "Ukupna vrednost", "Kumulativni procenat"]].values.tolist()
+        pareto_data.insert(0, ["Broj reklamacije", "Naziv artikla", "Vrednost (RSD)", "Kumulativni %"])
+        pareto_table = Table(pareto_data, colWidths=[2.5*cm, 4*cm, 2.5*cm, 2.5*cm])
+        pareto_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 7),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (1, 1), (3, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elements.append(pareto_table)
+        
+        granica = pareto[pareto["Kumulativni procenat"] <= 80].shape[0]
+        elements.append(Paragraph(f"📊 {granica} artikala čini 80% ukupne vrednosti", normal_style))
+        elements.append(Spacer(1, 10))
+    
+    # 9b. Starost artikala
+    if "Datum obrade" in df.columns:
+        elements.append(Paragraph("Starost artikala", normal_style))
         df_datum = df.copy()
         df_datum["Datum obrade"] = pd.to_datetime(df_datum["Datum obrade"], errors="coerce")
         danas = datetime.now()
         df_datum["Starost (dani)"] = (danas - df_datum["Datum obrade"]).dt.days
-        avg_starost = df_datum["Starost (dani)"].mean().round(0)
-        max_starost = df_datum["Starost (dani)"].max()
         
         starost_data = [
-            ["Prosečna starost", f"{avg_starost:.0f} dana"],
-            ["Najstariji artikal", f"{max_starost:.0f} dana"]
+            ["Prosečna starost", f"{df_datum['Starost (dani)'].mean().round(0):.0f} dana"],
+            ["Najstariji artikal", f"{df_datum['Starost (dani)'].max():.0f} dana"],
+            ["Najmlađi artikal", f"{df_datum['Starost (dani)'].min():.0f} dana"]
         ]
-        starost_table = Table(starost_data, colWidths=[5*cm, 5*cm])
+        starost_table = Table(starost_data, colWidths=[4*cm, 4*cm])
         starost_table.setStyle(TableStyle([
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#1F4E79')),
             ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
             ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
         elements.append(starost_table)
+        elements.append(Spacer(1, 10))
+        
+        # Top 10 najstarijih
+        najstariji_data = df_datum.nlargest(10, "Starost (dani)")[["Naziv artikla", "Starost (dani)", "Broj reklamacije"]].values.tolist()
+        najstariji_data.insert(0, ["Naziv artikla", "Starost (dani)", "Broj reklamacije"])
+        najstariji_table = Table(najstariji_data, colWidths=[5*cm, 2.5*cm, 2.5*cm])
+        najstariji_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 7),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (1, 1), (2, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elements.append(najstariji_table)
+        elements.append(Spacer(1, 10))
     
+    # 9c. Top 10 najskupljih
+    if "Nabavna cena" in df.columns:
+        elements.append(Paragraph("Top 10 najskupljih artikala", normal_style))
+        najskuplji_data = df.nlargest(10, "Nabavna cena")[["Broj reklamacije", "Naziv artikla", "Nabavna cena", "Brend"]].values.tolist()
+        najskuplji_data.insert(0, ["Broj reklamacije", "Naziv artikla", "Cena (RSD)", "Brend"])
+        najskuplji_table = Table(najskuplji_data, colWidths=[2.5*cm, 4*cm, 2.5*cm, 2.5*cm])
+        najskuplji_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 7),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (1, 1), (3, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elements.append(najskuplji_table)
+        elements.append(Spacer(1, 10))
+    
+    # 9d. Detekcija duplikata
+    if "Serijski broj" in df.columns:
+        duplikati = df[df["Serijski broj"].duplicated(keep=False)]
+        if len(duplikati) > 0:
+            elements.append(Paragraph(f"⚠️ Pronađeno {len(duplikati)} duplih serijskih brojeva", normal_style))
+            duplikati_data = duplikati.groupby("Serijski broj").agg({
+                "Naziv artikla": "first",
+                "Broj reklamacije": lambda x: ", ".join([str(b) for b in x])
+            }).reset_index().values.tolist()
+            duplikati_data.insert(0, ["Serijski broj", "Naziv artikla", "Brojevi reklamacija"])
+            duplikati_table = Table(duplikati_data[:10], colWidths=[3*cm, 4*cm, 3*cm])
+            duplikati_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 7),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            elements.append(duplikati_table)
+        else:
+            elements.append(Paragraph("✅ Nema duplih serijskih brojeva", normal_style))
+        elements.append(Spacer(1, 10))
+    
+    # 9e. Prosečna vrednost po brendu
+    if "Brend" in df.columns and "Nabavna cena" in df.columns:
+        elements.append(Paragraph("Prosečna vrednost po brendu", normal_style))
+        prosek_data = df.groupby("Brend")["Nabavna cena"].mean().sort_values(ascending=False).head(10).reset_index().values.tolist()
+        prosek_data.insert(0, ["Brend", "Prosečna cena (RSD)"])
+        prosek_table = Table(prosek_data, colWidths=[5*cm, 5*cm])
+        prosek_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elements.append(prosek_table)
+    
+    # ============================================================
     # Build PDF
+    # ============================================================
     doc.build(elements)
     buffer.seek(0)
     return buffer.getvalue()
