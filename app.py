@@ -21,9 +21,7 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 import os
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
+import base64
 import tempfile
 
 # ============================
@@ -32,18 +30,15 @@ import tempfile
 
 FONT_NAME = 'Helvetica'
 try:
-    # Probaj da učitaš DejaVu iz sistema (Streamlit Cloud ima)
     pdfmetrics.registerFont(TTFont('DejaVu', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
     pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
     FONT_NAME = 'DejaVu'
 except:
     try:
-        # Probaj iz root foldera
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         FONT_NAME = 'DejaVu'
     except:
-        # Ako nema ništa, koristi Helvetica (bez ćirilice, ali radi)
         FONT_NAME = 'Helvetica'
 
 # ============================
@@ -209,7 +204,24 @@ def formatiraj_i_sacuvaj(df):
     return output.getvalue()
 
 # ============================
-# PDF GENERATOR
+# PLOTLY -> SLIKA (za PDF)
+# ============================
+
+def plotly_to_image(fig, width=800, height=500):
+    """Konvertuje plotly figuru u sliku za PDF"""
+    # Sačuvaj kao PNG u BytesIO
+    img_bytes = fig.to_image(format="png", width=width, height=height, scale=1)
+    img_buffer = io.BytesIO(img_bytes)
+    img_buffer.seek(0)
+    return img_buffer
+
+def plotly_to_reportlab_image(fig, width=12*cm, height=8*cm):
+    """Konvertuje plotly figuru u ReportLab Image objekat"""
+    img_buffer = plotly_to_image(fig, width=800, height=500)
+    return Image(img_buffer, width=width, height=height)
+
+# ============================
+# PDF GENERATOR (sa plotly slikama)
 # ============================
 
 def generisi_pdf(df):
@@ -222,6 +234,7 @@ def generisi_pdf(df):
     naslov_style = ParagraphStyle('Naslov', parent=styles['Heading1'], fontName=FONT_NAME, fontSize=24, textColor=colors.HexColor('#1F4E79'), alignment=1, spaceAfter=20, spaceBefore=30)
     sekcija_style = ParagraphStyle('Sekcija', parent=styles['Heading3'], fontName=FONT_NAME, fontSize=14, textColor=colors.HexColor('#2E75B6'), spaceAfter=8, spaceBefore=12)
     normal_style = ParagraphStyle('Normal', parent=styles['Normal'], fontName=FONT_NAME, fontSize=10, spaceAfter=4)
+    bold_style = ParagraphStyle('Bold', parent=styles['Normal'], fontName=FONT_NAME, fontSize=10, textColor=colors.HexColor('#1F4E79'), spaceAfter=4)
     
     # Podaci
     ukupno = df["Količina"].sum() if "Količina" in df.columns else 0
@@ -244,7 +257,7 @@ def generisi_pdf(df):
     elements.append(PageBreak())
     
     # ============================================================
-    # 1. KLASIFIKACIJA RECIKLAŽE (tabela + grafikon)
+    # 1. KLASIFIKACIJA RECIKLAŽE
     # ============================================================
     elements.append(Paragraph("1. Klasifikacija reciklaže", sekcija_style))
     if "Klasifikacija reciklaže" in df.columns:
@@ -256,16 +269,11 @@ def generisi_pdf(df):
         elements.append(t)
         elements.append(Spacer(1, 0.5*cm))
         
-        # Grafikon
-        fig, ax = plt.subplots(figsize=(6, 4))
-        klas_pie = df["Klasifikacija reciklaže"].value_counts().head(6)
-        ax.pie(klas_pie.values, labels=klas_pie.index, autopct='%1.0f%%', startangle=90)
-        ax.set_title('Klasifikacija reciklaže')
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=12*cm, height=8*cm))
+        # Grafikon - plotly pie
+        fig = px.pie(klas.head(8), values="Broj", names="Klasifikacija", title="Klasifikacija reciklaže")
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        img = plotly_to_reportlab_image(fig, width=14*cm, height=9*cm)
+        elements.append(img)
     elements.append(PageBreak())
     
     # ============================================================
@@ -281,16 +289,11 @@ def generisi_pdf(df):
         elements.append(t)
         elements.append(Spacer(1, 0.5*cm))
         
-        fig, ax = plt.subplots(figsize=(6, 4))
-        steta_bar = df["Klasifikacija štete"].value_counts().head(6)
-        ax.barh(steta_bar.index, steta_bar.values, color='#1F4E79')
-        ax.set_xlabel('Broj')
-        ax.set_title('Klasifikacija štete')
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=12*cm, height=8*cm))
+        # Grafikon - plotly bar
+        fig = px.bar(steta.head(8), x="Klasifikacija štete", y="Broj", title="Klasifikacija štete")
+        fig.update_layout(xaxis_tickangle=-45)
+        img = plotly_to_reportlab_image(fig, width=14*cm, height=9*cm)
+        elements.append(img)
     elements.append(PageBreak())
     
     # ============================================================
@@ -306,17 +309,11 @@ def generisi_pdf(df):
         elements.append(t)
         elements.append(Spacer(1, 0.5*cm))
         
-        fig, ax = plt.subplots(figsize=(6, 4))
-        brend_bar = df["Brend"].value_counts().head(10)
-        ax.bar(brend_bar.index, brend_bar.values, color='#1F4E79')
-        ax.set_ylabel('Broj')
-        ax.set_title('Top 10 brendova')
-        plt.xticks(rotation=45, ha='right')
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=12*cm, height=8*cm))
+        # Grafikon - plotly bar
+        fig = px.bar(brend, x="Brend", y="Broj", title="Top 10 brendova")
+        fig.update_layout(xaxis_tickangle=-45)
+        img = plotly_to_reportlab_image(fig, width=14*cm, height=9*cm)
+        elements.append(img)
     elements.append(PageBreak())
     
     # ============================================================
@@ -336,22 +333,16 @@ def generisi_pdf(df):
         elements.append(t)
         elements.append(Spacer(1, 0.5*cm))
         
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.plot(trend["Mesec"], trend["Broj"], marker='o', color='#1F4E79')
-        ax.set_ylabel('Broj')
-        ax.set_title('Vremenski trend')
-        ax.grid(True, linestyle='--', alpha=0.5)
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=12*cm, height=7*cm))
+        # Grafikon - plotly line
+        fig = px.line(trend, x="Mesec", y="Broj", title="Vremenski trend", markers=True)
+        img = plotly_to_reportlab_image(fig, width=14*cm, height=8*cm)
+        elements.append(img)
     elements.append(PageBreak())
     
     # ============================================================
     # 5. PARETO ANALIZA
     # ============================================================
-    elements.append(Paragraph("5. Pareto analiza", sekcija_style))
+    elements.append(Paragraph("5. Pareto analiza (80/20)", sekcija_style))
     if "Nabavna cena" in df.columns and "Količina" in df.columns:
         df["Ukupna vrednost"] = df["Nabavna cena"] * df["Količina"]
         pareto = df.sort_values("Ukupna vrednost", ascending=False)
@@ -365,29 +356,26 @@ def generisi_pdf(df):
         elements.append(t)
         elements.append(Spacer(1, 0.3*cm))
         granica = pareto[pareto["Kumulativni %"] <= 80].shape[0]
-        elements.append(Paragraph(f"{granica} artikala čini 80% vrednosti", normal_style))
+        elements.append(Paragraph(f"📊 {granica} artikala čini 80% ukupne vrednosti", bold_style))
+        elements.append(Spacer(1, 0.5*cm))
         
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.bar(range(20), pareto["Ukupna vrednost"].head(20), color='#1F4E79')
-        ax.axhline(y=pareto["Ukupna vrednost"].sum() * 0.8, color='red', linestyle='--', label='80%')
-        ax.set_xlabel('Redni broj')
-        ax.set_ylabel('Vrednost')
-        ax.set_title('Pareto analiza')
-        ax.legend()
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=12*cm, height=7*cm))
+        # Grafikon - plotly bar sa linijom
+        pareto_top = pareto.head(20).reset_index()
+        pareto_top.index = range(1, len(pareto_top) + 1)
+        fig = px.bar(pareto_top, x=pareto_top.index, y="Ukupna vrednost", title="Pareto analiza - Top 20 artikala")
+        fig.add_hline(y=pareto["Ukupna vrednost"].sum() * 0.8, line_dash="dash", line_color="red", annotation_text="80% granica")
+        fig.update_layout(xaxis_title="Redni broj artikla", yaxis_title="Vrednost (RSD)")
+        img = plotly_to_reportlab_image(fig, width=14*cm, height=8*cm)
+        elements.append(img)
     elements.append(PageBreak())
     
     # ============================================================
     # 6. TOP 10 NAJSKUPLJIH
     # ============================================================
-    elements.append(Paragraph("6. Top 10 najskupljih", sekcija_style))
+    elements.append(Paragraph("6. Top 10 najskupljih artikala", sekcija_style))
     if "Nabavna cena" in df.columns:
         naj = df.nlargest(10, "Nabavna cena")[["Broj reklamacije", "Naziv artikla", "Nabavna cena", "Brend"]]
-        table_data = [["Broj reklamacije", "Naziv", "Cena", "Brend"]]
+        table_data = [["Broj reklamacije", "Naziv", "Cena (RSD)", "Brend"]]
         for _, r in naj.iterrows():
             table_data.append([str(r["Broj reklamacije"])[:12], str(r["Naziv artikla"])[:25], f"{r['Nabavna cena']:,.2f}", str(r["Brend"])])
         t = Table(table_data, colWidths=[2.5*cm, 5*cm, 3*cm, 2.5*cm])
@@ -395,15 +383,11 @@ def generisi_pdf(df):
         elements.append(t)
         elements.append(Spacer(1, 0.5*cm))
         
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.barh(naj["Naziv artikla"].str[:20], naj["Nabavna cena"], color='#1F4E79')
-        ax.set_xlabel('Cena (RSD)')
-        ax.set_title('Top 10 najskupljih')
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=12*cm, height=7*cm))
+        # Grafikon - plotly horizontal bar
+        fig = px.bar(naj, x="Nabavna cena", y="Naziv artikla", orientation='h', title="Top 10 najskupljih", color="Brend")
+        fig.update_layout(xaxis_title="Cena (RSD)", yaxis_title="")
+        img = plotly_to_reportlab_image(fig, width=14*cm, height=9*cm)
+        elements.append(img)
     
     # Završna
     elements.append(PageBreak())
@@ -469,15 +453,14 @@ if uploaded_file is not None:
         with st.spinner("Spajam..."):
             lookup = pripremi_lookup(reklamacije)
             df = spoji(reciklaza, lookup)
-        st.success(f"✅ {len(df)} redova")
+        st.success(f"✅ Učitano: {len(reciklaza)} redova, spojeno: {len(df)} redova")
         st.markdown("---")
         
-        # Dugmad za preuzimanje
         col1, col2 = st.columns(2)
         with col1:
             excel_data = formatiraj_i_sacuvaj(df)
-            st.download_button("📥 Excel", excel_data, f"izvestaj_{datetime.now().strftime('%Y%m%d')}.xlsx", use_container_width=True)
+            st.download_button("📥 Preuzmi Excel", excel_data, f"izvestaj_{datetime.now().strftime('%Y%m%d')}.xlsx", use_container_width=True)
         with col2:
             with st.spinner("Generišem PDF..."):
                 pdf_data = generisi_pdf(df)
-                st.download_button("📄 PDF", pdf_data, f"izvestaj_{datetime.now().strftime('%Y%m%d')}.pdf", use_container_width=True)
+                st.download_button("📄 Preuzmi PDF (sa grafikonima)", pdf_data, f"izvestaj_{datetime.now().strftime('%Y%m%d')}.pdf", use_container_width=True)
