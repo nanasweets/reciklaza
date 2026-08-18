@@ -3,5 +3,3 @@ pandas
 openpyxl
 plotly
 reportlab
-smtplib
-email
