@@ -8,19 +8,19 @@ import io
 import re
 import plotly.express as px
 import plotly.graph_objects as go
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import cm, inch
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
-import base64
-from io import BytesIO
-import tempfile
+import matplotlib.pyplot as plt
 import os
 
 # ============================
@@ -33,7 +33,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Tamna tema (opcija)
+# Tamna tema
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
 
@@ -410,10 +410,6 @@ def upisi_prevoznike(ws, df):
     for col in [1, 2, 4, 5, 6]:
         ws.column_dimensions[get_column_letter(col)].width = 25
 
-# ============================
-# NAPREDNE METRIKE ZA EXCEL
-# ============================
-
 def upisi_metrike(ws, df):
     """Dodatni sheet sa naprednim metrikama"""
     ws.cell(row=1, column=1, value="Napredne metrike")
@@ -421,7 +417,7 @@ def upisi_metrike(ws, df):
     
     row = 3
     
-    # 1. Pareto analiza (80/20) - sa brojem reklamacije
+    # 1. Pareto analiza (80/20)
     if "Nabavna cena" in df.columns and "Količina" in df.columns:
         df["Ukupna vrednost"] = df["Nabavna cena"] * df["Količina"]
         pareto = df.sort_values("Ukupna vrednost", ascending=False)
@@ -493,7 +489,7 @@ def upisi_metrike(ws, df):
             row += 1
         row += 2
     
-    # 3. Top 10 najskupljih - sa brojem reklamacije
+    # 3. Top 10 najskupljih
     if "Nabavna cena" in df.columns:
         ws.cell(row=row, column=1, value="TOP 10 NAJSKUPLJIH ARTIKALA")
         ws.cell(row=row, column=1).font = Font(bold=True, size=12)
@@ -611,73 +607,39 @@ def formatiraj_i_sacuvaj(df):
     return output.getvalue()
 
 # ============================
-# PDF GENERATOR
+# PDF GENERATOR (sa srpskim slovima i grafikonima)
 # ============================
-
-# ============================
-# PDF GENERATOR (NOVA VERZIJA)
-# ============================
-
-import matplotlib.pyplot as plt
-import matplotlib
-from io import BytesIO
-import base64
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle, StyleSheet1
-from reportlab.lib import colors
-from reportlab.lib.units import cm, inch, mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import os
-
-# Registrujemo font za srpska slova (koristimo DejaVu)
-try:
-    # Probaj da registruješ font iz sistema
-    pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
-    pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
-except:
-    # Ako nema DejaVu, probaj neki drugi
-    try:
-        pdfmetrics.registerFont(TTFont('DejaVu', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-        pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
-    except:
-        # Fallback na helveticu (ne radi srpska slova, ali bolje nego ništa)
-        pass
-
-# ============================
-# PDF GENERATOR (NOVA VERZIJA)
-# ============================
-
-import matplotlib.pyplot as plt
-import matplotlib
-from io import BytesIO
-import base64
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle, StyleSheet1
-from reportlab.lib import colors
-from reportlab.lib.units import cm, inch, mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import os
-
-# Registrujemo font za srpska slova (koristimo DejaVu)
-try:
-    # Probaj da registruješ font iz sistema
-    pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
-    pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
-except:
-    # Ako nema DejaVu, probaj neki drugi
-    try:
-        pdfmetrics.registerFont(TTFont('DejaVu', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-        pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
-    except:
-        # Fallback na helveticu (ne radi srpska slova, ali bolje nego ništa)
-        pass
 
 def generisi_pdf(df):
-    """Generiše profesionalan PDF izveštaj sa grafikonima"""
+    """Generiše profesionalan PDF izveštaj sa srpskim slovima i grafikonima"""
+    
+    # Registracija fonta za srpska slova
+    font_registriran = False
+    font_name = 'Helvetica'
+    
+    # Pokušaj da učita DejaVu font iz root foldera
+    try:
+        dir_path = os.path.dirname(__file__)
+        font_path = os.path.join(dir_path, 'DejaVuSans.ttf')
+        font_bold_path = os.path.join(dir_path, 'DejaVuSans-Bold.ttf')
+        
+        if os.path.exists(font_path) and os.path.exists(font_bold_path):
+            pdfmetrics.registerFont(TTFont('DejaVu', font_path))
+            pdfmetrics.registerFont(TTFont('DejaVu-Bold', font_bold_path))
+            font_name = 'DejaVu'
+            font_registriran = True
+    except:
+        pass
+    
+    # Ako nema DejaVu, probaj sistemski font
+    if not font_registriran:
+        try:
+            pdfmetrics.registerFont(TTFont('DejaVu', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
+            pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
+            font_name = 'DejaVu'
+            font_registriran = True
+        except:
+            pass
     
     # Priprema podataka
     ukupno_artikala = df["Količina"].sum() if "Količina" in df.columns else 0
@@ -696,35 +658,18 @@ def generisi_pdf(df):
         bottomMargin=1.5*cm
     )
     
-    # Stilovi
     styles = getSampleStyleSheet()
     
-    # Definišemo srpski font
-    try:
-        font_name = 'DejaVu'
-    except:
-        font_name = 'Helvetica'
-    
-    # Kreiranje stilova sa srpskim fontom
+    # Stilovi sa srpskim fontom
     naslov_style = ParagraphStyle(
         'Naslov',
         parent=styles['Heading1'],
         fontName=font_name,
         fontSize=24,
         textColor=colors.HexColor('#1F4E79'),
-        alignment=1,  # centar
+        alignment=1,
         spaceAfter=20,
         spaceBefore=30
-    )
-    
-    podnaslov_style = ParagraphStyle(
-        'Podnaslov',
-        parent=styles['Heading2'],
-        fontName=font_name,
-        fontSize=16,
-        textColor=colors.HexColor('#1F4E79'),
-        spaceAfter=12,
-        spaceBefore=15
     )
     
     naslov_sekcije_style = ParagraphStyle(
@@ -768,7 +713,7 @@ def generisi_pdf(df):
     elements.append(Paragraph(f"Generisano: {datetime.now().strftime('%d.%m.%Y %H:%M')}", normal_style))
     elements.append(Spacer(1, 2*cm))
     
-    # KPI na naslovnoj
+    # KPI
     kpi_data = [
         ["Ukupno artikala", f"{ukupno_artikala:,}"],
         ["Ukupna vrednost", f"{ukupna_vrednost:,.2f} RSD"],
@@ -792,7 +737,7 @@ def generisi_pdf(df):
     elements.append(PageBreak())
     
     # ============================================================
-    # 1. KLASIFIKACIJA RECIKLAŽE (sa grafikonom)
+    # 1. KLASIFIKACIJA RECIKLAŽE
     # ============================================================
     
     elements.append(Paragraph("1. Klasifikacija reciklaže", naslov_sekcije_style))
@@ -801,7 +746,6 @@ def generisi_pdf(df):
         klas_data = df["Klasifikacija reciklaže"].value_counts().head(10).reset_index()
         klas_data.columns = ["Klasifikacija", "Broj artikala"]
         
-        # Tabela
         table_data = [["Klasifikacija", "Broj"]]
         for _, row in klas_data.iterrows():
             table_data.append([str(row["Klasifikacija"])[:50], str(row["Broj artikala"])])
@@ -819,10 +763,7 @@ def generisi_pdf(df):
     
     elements.append(Spacer(1, 0.5*cm))
     
-    # ============================================================
-    # GRAFIKON: Klasifikacija reciklaže (Pie chart)
-    # ============================================================
-    
+    # Grafikon
     if "Klasifikacija reciklaže" in df.columns:
         fig, ax = plt.subplots(figsize=(8, 5))
         klas_data = df["Klasifikacija reciklaže"].value_counts().head(8)
@@ -836,7 +777,6 @@ def generisi_pdf(df):
         )
         ax.set_title('Raspored po klasifikaciji reciklaže', fontsize=14, fontweight='bold')
         
-        # Sačuvaj grafikon kao sliku
         img_buffer = BytesIO()
         plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
         img_buffer.seek(0)
@@ -848,7 +788,7 @@ def generisi_pdf(df):
     elements.append(PageBreak())
     
     # ============================================================
-    # 2. KLASIFIKACIJA ŠTETE (sa grafikonom)
+    # 2. KLASIFIKACIJA ŠTETE
     # ============================================================
     
     elements.append(Paragraph("2. Klasifikacija štete", naslov_sekcije_style))
@@ -998,7 +938,6 @@ def generisi_pdf(df):
         pareto = df.sort_values("Ukupna vrednost", ascending=False)
         pareto["Kumulativni procenat"] = (pareto["Ukupna vrednost"].cumsum() / pareto["Ukupna vrednost"].sum() * 100).round(2)
         
-        # Tabela
         table_data = [["Broj reklamacije", "Naziv artikla", "Vrednost (RSD)", "Kum.%"]]
         for _, row in pareto.head(15).iterrows():
             table_data.append([
@@ -1177,7 +1116,8 @@ Tehnomanija
     
     except Exception as e:
         return False, f"Greška pri slanju emaila: {str(e)}"
-        # ============================
+
+# ============================
 # FUNKCIJE ZA VIZUELNE IZVEŠTAJE (STREAMLIT)
 # ============================
 
