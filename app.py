@@ -34,20 +34,18 @@ LOOKUP_BG = "D9E1F2"
 LOOKUP_FONT = "1F4E79"
 
 def cisti_broj(vrednost):
-    """Izvlači samo cifre iz vrednosti (ignoriše sve ostalo)"""
+    """Izvlači samo cifre iz vrednosti"""
     if pd.isna(vrednost):
         return ""
     tekst = str(vrednost).strip()
-    # Zadrži samo cifre (0-9)
     cifre = re.sub(r'[^0-9]', '', tekst)
     return cifre
 
 def pronadji_kolonu_broja(df):
     for kol in df.columns:
-        kol_lower = kol.lower()
-        if "broj" in kol_lower and "reklamacije" in kol_lower:
+        if "broj" in kol.lower() and "reklamacije" in kol.lower():
             return kol
-        if "reklamacija" in kol_lower and ("broj" in kol_lower or "id" in kol_lower):
+        if "reklamacija" in kol.lower() and ("broj" in kol.lower() or "id" in kol.lower()):
             return kol
     for kol in df.columns:
         if "broj" in kol.lower() or "id" in kol.lower():
@@ -171,29 +169,67 @@ uploaded_file = st.file_uploader("Izaberi Excel fajl", type=["xlsx"])
 if uploaded_file is not None:
     with st.spinner("Učitavam podatke..."):
         reciklaza, reklamacije, kolona_broja = ucitaj_podatke(uploaded_file)
+    
     if reciklaza is not None and reklamacije is not None:
         st.success(f"✅ Učitano: {len(reciklaza)} redova u 'reciklaža', {len(reklamacije)} redova u 'reklamacije ukupno'")
-        with st.expander("🔍 Provera podataka (prvih 5 redova)"):
-            st.write("**📋 'reciklaža' - prvih 5 redova:**")
-            st.dataframe(reciklaza.head(), use_container_width=True)
-            st.write(f"**📋 'reklamacije ukupno' - kolona za broj reklamacije: `{kolona_broja}`**")
-            st.dataframe(reklamacije[[kolona_broja] + list(reklamacije.columns[:2])].head(), use_container_width=True)
+        
+        # 🔥 NOVO: Detaljna provera formata brojeva
+        with st.expander("🔍 DETALJNA PROVERA BROJEVA REKLAMACIJA", expanded=True):
+            st.markdown("### 📋 Brojevi iz 'reciklaža' (prvih 10):")
+            
+            # Prikaz originalnih vrednosti i očišćenih
+            brojevi_iz_reciklaze = reciklaza["Broj reklamacije"].head(10).tolist()
+            brojevi_iz_reciklaze_cisti = [cisti_broj(x) for x in brojevi_iz_reciklaze]
+            
+            df_poredenje = pd.DataFrame({
+                "Originalna vrednost": brojevi_iz_reciklaze,
+                "Očišćena vrednost (cifre)": brojevi_iz_reciklaze_cisti,
+                "Dužina": [len(str(x)) for x in brojevi_iz_reciklaze_cisti]
+            })
+            st.dataframe(df_poredenje, use_container_width=True)
+            
+            st.markdown("### 📋 Brojevi iz 'reklamacije ukupno' (prvih 10):")
+            
+            # Uzmi prvih 10 iz reklamacije ukupno
+            brojevi_iz_reklamacija = reklamacije[kolona_broja].head(10).tolist()
+            brojevi_iz_reklamacija_cisti = [cisti_broj(x) for x in brojevi_iz_reklamacija]
+            
+            df_poredenje2 = pd.DataFrame({
+                "Originalna vrednost": brojevi_iz_reklamacija,
+                "Očišćena vrednost (cifre)": brojevi_iz_reklamacija_cisti,
+                "Dužina": [len(str(x)) for x in brojevi_iz_reklamacija_cisti]
+            })
+            st.dataframe(df_poredenje2, use_container_width=True)
+            
+            # Pokušaj da pronađeš prvi broj iz reciklaže u reklamacijama
+            if len(brojevi_iz_reciklaze_cisti) > 0 and brojevi_iz_reciklaze_cisti[0]:
+                prvi_broj = brojevi_iz_reciklaze_cisti[0]
+                postoji = prvi_broj in [cisti_broj(x) for x in reklamacije[kolona_broja].tolist()]
+                if postoji:
+                    st.success(f"✅ Broj '{prvi_broj}' POSTOJI u 'reklamacije ukupno'")
+                else:
+                    st.error(f"❌ Broj '{prvi_broj}' NE POSTOJI u 'reklamacije ukupno'")
+        
         with st.spinner("Spajam podatke..."):
             lookup, _ = pripremi_lookup(reklamacije, kolona_broja)
             df_final, pronadjeno, nepronadjeno, nepronadjeni_brojevi = spoji(reciklaza, lookup)
+        
         st.info(f"✅ Pronađeno: **{pronadjeno}** reklamacija, ⚠️ Nije pronađeno: **{nepronadjeno}**")
+        
         if nepronadjeno > 0:
             with st.expander("🔍 Prikaži nepronađene brojeve reklamacije"):
                 st.write(f"**Prvih 20 od {len(nepronadjeni_brojevi)} nepronađenih brojeva:**")
                 st.write(nepronadjeni_brojevi[:20])
+                
                 lookup_kolone = list(MAPPING.keys())
                 mask = df_final[lookup_kolone].isna().all(axis=1)
                 nepronadjeni_redovi = df_final.loc[mask, ["Broj reklamacije"] + lookup_kolone]
-                st.write("**Nepronađeni redovi u tabeli:**")
                 st.dataframe(nepronadjeni_redovi.head(20), use_container_width=True)
                 st.warning(f"⚠️ Ukupno {len(nepronadjeni_redovi)} redova nije pronađeno u bazi reklamacija")
+        
         st.subheader("📊 Pregled rezultata (prvih 5 redova)")
         st.dataframe(df_final.head(), use_container_width=True)
+        
         excel_data = formatiraj_i_sacuvaj(df_final)
         st.download_button(
             label="📥 Preuzmi obrađen Excel fajl",
