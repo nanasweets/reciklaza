@@ -80,7 +80,7 @@ HEADER_FONT = "FFFFFF"
 LOOKUP_BG = "D9E1F2"
 LOOKUP_FONT = "1F4E79"
 
-# Parametri za prodaju trećem licu
+# Parametri za prodaju
 if "kurs_evra" not in st.session_state:
     st.session_state.kurs_evra = 117.0
 if "cena_po_paleti_evri" not in st.session_state:
@@ -127,7 +127,7 @@ def pronadji_kolonu_broja(df):
     return df.columns[0]
 
 # ============================
-# OBRADA PODATAKA SA ROKOVIMA
+# OBRADA PODATAKA
 # ============================
 
 def ucitaj_podatke(fajl):
@@ -208,52 +208,6 @@ def spoji(reciklaza, lookup):
     extras = [c for c in df.columns if c not in KOLONE_OUTPUT]
     finalne = [c for c in KOLONE_OUTPUT if c in df.columns] + extras
     return df[finalne]
-
-# ============================
-# PRODAJA TREĆEM LICU (ISPRAVLJENA)
-# ============================
-
-def generisi_predlog_prodaje(df, kurs_evra=117, cena_po_paleti_evri=110):
-    """
-    Generiše predlog za prodaju trećem licu.
-    - SVI artikli idu u prodaju (bez filtera)
-    - Broj paleta = broj unikatnih skladišnih lokacija
-    """
-    df_copy = df.copy()
-    
-    # Provera potrebnih kolona
-    if "Skladišna lokacija" not in df_copy.columns:
-        return None, "Nema podataka o skladišnim lokacijama"
-    
-    if "Nabavna cena" not in df_copy.columns or "Količina" not in df_copy.columns:
-        return None, "Nema podataka o nabavnoj ceni ili količini"
-    
-    # Izračunavanje vrednosti
-    df_copy["Ukupna nabavna vrednost (RSD)"] = df_copy["Nabavna cena"] * df_copy["Količina"]
-    
-    # BROJ PALETA = BROJ UNIKATNIH SKLADIŠNIH LOKACIJA (Ovo je ispravka!)
-    ukupno_paleta = df_copy["Skladišna lokacija"].nunique()
-    
-    # Sažetak
-    sazetak = {
-        "Ukupno artikala": df_copy["Količina"].sum(),
-        "Ukupno paleta": ukupno_paleta,
-        "Ukupna nabavna vrednost (RSD)": df_copy["Ukupna nabavna vrednost (RSD)"].sum(),
-        "Ukupna vrednost ponude (€)": ukupno_paleta * cena_po_paleti_evri,
-        "Ukupna vrednost ponude (RSD)": ukupno_paleta * cena_po_paleti_evri * kurs_evra,
-        "Ukupni gubitak (RSD)": df_copy["Ukupna nabavna vrednost (RSD)"].sum() - (ukupno_paleta * cena_po_paleti_evri * kurs_evra),
-        "Broj artikala za prodaju": len(df_copy),
-        "Broj unikatnih lokacija": ukupno_paleta,
-    }
-    
-    # Pojedinačna tabela po artiklima
-    df_predlog = df_copy.copy()
-    
-    # Dodaj informaciju o rokovima (samo za pregled)
-    if "Status roka" in df_predlog.columns:
-        df_predlog["U roku (30 dana)"] = df_predlog["Status roka"]
-    
-    return df_predlog, sazetak
 
 # ============================
 # POMOĆNE FUNKCIJE ZA EXCEL
@@ -684,31 +638,25 @@ def upisi_analiza_rokova(ws, df):
         ws.column_dimensions[get_column_letter(col)].width = 30
 
 def upisi_predlog_prodaje(ws, df, kurs_evra=117, cena_po_paleti_evri=110):
-    """Sheet: Predlog za prodaju trećem licu (SVI artikli, palete = unikatne lokacije)"""
-    
     ws.cell(row=1, column=1, value="PREDLOG ZA PRODAJU TREĆEM LICU")
     ws.cell(row=1, column=1).font = Font(bold=True, size=14, color=HEADER_BG)
     
     row = 3
     
-    # Provera kolona
     if "Skladišna lokacija" not in df.columns:
         ws.cell(row=row, column=1, value="Nema podataka o skladišnim lokacijama")
         return
     
     df_copy = df.copy()
     
-    # Izračunavanje vrednosti
     if "Nabavna cena" in df_copy.columns and "Količina" in df_copy.columns:
         df_copy["Ukupna nabavna vrednost (RSD)"] = df_copy["Nabavna cena"] * df_copy["Količina"]
     else:
         ws.cell(row=row, column=1, value="Nema podataka o nabavnoj ceni ili količini")
         return
     
-    # BROJ PALETA = BROJ UNIKATNIH SKLADIŠNIH LOKACIJA (Ovo je ispravka!)
     ukupno_paleta = df_copy["Skladišna lokacija"].nunique()
     
-    # Parametri
     ws.cell(row=row, column=1, value="PARAMETRI PREDLOGA")
     ws.cell(row=row, column=1).font = Font(bold=True, size=12)
     row += 1
@@ -731,7 +679,6 @@ def upisi_predlog_prodaje(ws, df, kurs_evra=117, cena_po_paleti_evri=110):
     ws.cell(row=row, column=1, value=f"📦 Broj paleta = broj unikatnih skladišnih lokacija: {ukupno_paleta}")
     row += 2
     
-    # Header za tabelu
     headers = [
         "Broj reklamacije", "Naziv artikla", "Brend", "Količina",
         "Nabavna cena (RSD)", "Ukupna nabavna (RSD)",
@@ -752,14 +699,12 @@ def upisi_predlog_prodaje(ws, df, kurs_evra=117, cena_po_paleti_evri=110):
         ws.cell(row=row, column=6).value = excel_compatible(r["Ukupna nabavna vrednost (RSD)"])
         ws.cell(row=row, column=7).value = excel_compatible(r["Skladišna lokacija"])
         
-        # Status roka
         if "Status roka" in r:
             ws.cell(row=row, column=8).value = excel_compatible(r["Status roka"])
         else:
             ws.cell(row=row, column=8).value = "N/A"
         row += 1
     
-    # Sažetak
     row += 2
     ws.cell(row=row, column=1, value="SAŽETAK PREDLOGA")
     ws.cell(row=row, column=1).font = Font(bold=True, size=12)
@@ -989,296 +934,6 @@ def formatiraj_i_sacuvaj(df):
     return output.getvalue()
 
 # ============================
-# PDF GENERATOR (skraćen)
-# ============================
-
-def generisi_pdf(df):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
-    styles = getSampleStyleSheet()
-    elements = []
-    
-    naslov_style = ParagraphStyle('Naslov', parent=styles['Heading1'], fontName=FONT_NAME, fontSize=24, textColor=colors.HexColor('#1F4E79'), alignment=1, spaceAfter=20, spaceBefore=30)
-    sekcija_style = ParagraphStyle('Sekcija', parent=styles['Heading3'], fontName=FONT_NAME, fontSize=14, textColor=colors.HexColor('#2E75B6'), spaceAfter=8, spaceBefore=12)
-    normal_style = ParagraphStyle('Normal', parent=styles['Normal'], fontName=FONT_NAME, fontSize=10, spaceAfter=4)
-    bold_style = ParagraphStyle('Bold', parent=styles['Normal'], fontName=FONT_NAME, fontSize=10, textColor=colors.HexColor('#1F4E79'), spaceAfter=4)
-    
-    df_copy = df.copy()
-    if "Datum obrade" in df_copy.columns:
-        df_copy["Datum obrade"] = pd.to_datetime(df_copy["Datum obrade"], errors="coerce")
-        danas = datetime.now()
-        df_copy = df_copy[(df_copy["Datum obrade"].notna()) & (df_copy["Datum obrade"] <= danas)]
-    
-    ukupno = df_copy["Količina"].sum() if "Količina" in df_copy.columns else 0
-    vrednost = (df_copy["Nabavna cena"] * df_copy["Količina"]).sum() if "Nabavna cena" in df_copy.columns and "Količina" in df_copy.columns else 0
-    broj_brendova = df_copy["Brend"].nunique() if "Brend" in df_copy.columns else 0
-    
-    # NASLOVNA
-    elements.append(Spacer(1, 4*cm))
-    elements.append(Paragraph("Tehnomanija", naslov_style))
-    elements.append(Spacer(1, 0.5*cm))
-    elements.append(Paragraph("IZVEŠTAJ O RECIKLAŽI", naslov_style))
-    elements.append(Spacer(1, 0.5*cm))
-    elements.append(Paragraph(f"Generisano: {datetime.now().strftime('%d.%m.%Y %H:%M')}", normal_style))
-    elements.append(Spacer(1, 2*cm))
-    
-    kpi_data = [["Ukupno artikala", f"{ukupno:,}"], ["Ukupna vrednost", f"{vrednost:,.2f} RSD"], ["Broj brendova", str(broj_brendova)]]
-    kpi_table = Table(kpi_data, colWidths=[7*cm, 5*cm])
-    kpi_table.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 11), ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (0,-1), colors.white), ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#CCCCCC')), ('ALIGN', (1,0), (1,-1), 'RIGHT')]))
-    elements.append(kpi_table)
-    elements.append(PageBreak())
-    
-    # 1. KLASIFIKACIJA RECIKLAŽE
-    elements.append(Paragraph("1. Klasifikacija reciklaže", sekcija_style))
-    if "Klasifikacija reciklaže" in df_copy.columns:
-        klas = df_copy["Klasifikacija reciklaže"].value_counts().head(10).reset_index()
-        klas.columns = ["Klasifikacija", "Broj"]
-        if "Nabavna cena" in df_copy.columns and "Količina" in df_copy.columns:
-            df_copy["Ukupna vrednost"] = df_copy["Nabavna cena"] * df_copy["Količina"]
-            vrednost_klas = df_copy.groupby("Klasifikacija reciklaže")["Ukupna vrednost"].sum().reset_index()
-            vrednost_klas.columns = ["Klasifikacija", "Vrednost (RSD)"]
-            klas = klas.merge(vrednost_klas, on="Klasifikacija", how="left")
-        
-        table_data = [["Klasifikacija", "Broj", "Vrednost (RSD)"]] + [[str(r["Klasifikacija"])[:40], str(r["Broj"]), f"{r['Vrednost (RSD)']:,.2f}" if 'Vrednost (RSD)' in r else "0"] for _, r in klas.iterrows()]
-        t = Table(table_data, colWidths=[7*cm, 3*cm, 4*cm])
-        t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 8), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC')), ('ALIGN', (2,1), (2,-1), 'RIGHT')]))
-        elements.append(t)
-        elements.append(Spacer(1, 0.5*cm))
-        
-        fig, ax = plt.subplots(figsize=(6, 4))
-        klas_pie = df_copy["Klasifikacija reciklaže"].value_counts().head(6)
-        ax.pie(klas_pie.values, labels=klas_pie.index, autopct='%1.0f%%', startangle=90)
-        ax.set_title('Klasifikacija reciklaže')
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=14*cm, height=8*cm))
-    elements.append(PageBreak())
-    
-    # 2. KLASIFIKACIJA ŠTETE
-    elements.append(Paragraph("2. Klasifikacija štete", sekcija_style))
-    if "Klasifikacija štete" in df_copy.columns:
-        steta = df_copy["Klasifikacija štete"].value_counts().head(10).reset_index()
-        steta.columns = ["Klasifikacija štete", "Broj"]
-        if "Nabavna cena" in df_copy.columns and "Količina" in df_copy.columns:
-            vrednost_steta = df_copy.groupby("Klasifikacija štete")["Ukupna vrednost"].sum().reset_index()
-            vrednost_steta.columns = ["Klasifikacija štete", "Vrednost (RSD)"]
-            steta = steta.merge(vrednost_steta, on="Klasifikacija štete", how="left")
-        
-        table_data = [["Klasifikacija štete", "Broj", "Vrednost (RSD)"]] + [[str(r["Klasifikacija štete"])[:40], str(r["Broj"]), f"{r['Vrednost (RSD)']:,.2f}" if 'Vrednost (RSD)' in r else "0"] for _, r in steta.iterrows()]
-        t = Table(table_data, colWidths=[7*cm, 3*cm, 4*cm])
-        t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 8), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC')), ('ALIGN', (2,1), (2,-1), 'RIGHT')]))
-        elements.append(t)
-        elements.append(Spacer(1, 0.5*cm))
-        
-        fig, ax = plt.subplots(figsize=(6, 4))
-        steta_bar = df_copy["Klasifikacija štete"].value_counts().head(6)
-        ax.barh(steta_bar.index, steta_bar.values, color='#1F4E79')
-        ax.set_xlabel('Broj')
-        ax.set_title('Klasifikacija štete')
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=14*cm, height=8*cm))
-    elements.append(PageBreak())
-    
-    # 3. TOP 10 BRENDOVA
-    elements.append(Paragraph("3. Top 10 brendova", sekcija_style))
-    if "Brend" in df_copy.columns:
-        if "Nabavna cena" in df_copy.columns and "Količina" in df_copy.columns:
-            brend_analiza = df_copy.groupby("Brend").agg({
-                "Broj reklamacije": "count",
-                "Ukupna vrednost": "sum"
-            }).reset_index()
-            brend_analiza.columns = ["Brend", "Broj artikala", "Ukupna vrednost (RSD)"]
-        else:
-            brend_analiza = df_copy["Brend"].value_counts().head(10).reset_index()
-            brend_analiza.columns = ["Brend", "Broj artikala"]
-            brend_analiza["Ukupna vrednost (RSD)"] = 0
-        
-        brend_analiza = brend_analiza.sort_values("Broj artikala", ascending=False).head(10)
-        
-        table_data = [["Brend", "Broj", "Vrednost (RSD)"]] + [[str(r["Brend"]), str(r["Broj artikala"]), f"{r['Ukupna vrednost (RSD)']:,.2f}"] for _, r in brend_analiza.iterrows()]
-        t = Table(table_data, colWidths=[7*cm, 3*cm, 4*cm])
-        t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 8), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC')), ('ALIGN', (2,1), (2,-1), 'RIGHT')]))
-        elements.append(t)
-        elements.append(Spacer(1, 0.5*cm))
-        
-        fig, ax = plt.subplots(figsize=(6, 4))
-        brend_bar = df_copy["Brend"].value_counts().head(10)
-        ax.bar(brend_bar.index, brend_bar.values, color='#1F4E79')
-        ax.set_ylabel('Broj')
-        ax.set_title('Top 10 brendova')
-        plt.xticks(rotation=45, ha='right')
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=14*cm, height=8*cm))
-    elements.append(PageBreak())
-    
-    # 4. VREMENSKI TREND
-    elements.append(Paragraph("4. Vremenski trend", sekcija_style))
-    if "Datum obrade" in df_copy.columns:
-        df_datum = df_copy.copy()
-        df_datum["Datum obrade"] = pd.to_datetime(df_datum["Datum obrade"], errors="coerce")
-        danas = datetime.now()
-        df_datum = df_datum[(df_datum["Datum obrade"].notna()) & (df_datum["Datum obrade"] <= danas) & (df_datum["Datum obrade"] >= datetime(2020, 1, 1))]
-        
-        if len(df_datum) > 0:
-            df_datum["Mesec"] = df_datum["Datum obrade"].dt.to_period("M")
-            trend = df_datum.groupby("Mesec").agg({"Broj reklamacije": "count"}).reset_index()
-            trend.columns = ["Mesec", "Broj artikala"]
-            trend["Mesec"] = trend["Mesec"].astype(str)
-            
-            if "Ukupna vrednost" in df_datum.columns:
-                vrednost_trend = df_datum.groupby("Mesec")["Ukupna vrednost"].sum().reset_index()
-                vrednost_trend.columns = ["Mesec", "Vrednost (RSD)"]
-                vrednost_trend["Mesec"] = vrednost_trend["Mesec"].astype(str)
-                trend = trend.merge(vrednost_trend, on="Mesec", how="left")
-            
-            table_data = [["Mesec", "Broj", "Vrednost (RSD)"]] + [[str(r["Mesec"]), str(r["Broj artikala"]), f"{r['Vrednost (RSD)']:,.2f}" if 'Vrednost (RSD)' in r else "0"] for _, r in trend.iterrows()]
-            t = Table(table_data, colWidths=[5*cm, 3*cm, 5*cm])
-            t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 8), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC')), ('ALIGN', (2,1), (2,-1), 'RIGHT')]))
-            elements.append(t)
-            elements.append(Spacer(1, 0.5*cm))
-            
-            fig, ax = plt.subplots(figsize=(6, 4))
-            ax.plot(trend["Mesec"], trend["Broj artikala"], marker='o', color='#1F4E79')
-            ax.set_ylabel('Broj')
-            ax.set_title('Vremenski trend')
-            ax.grid(True, linestyle='--', alpha=0.5)
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-            img_buffer.seek(0)
-            plt.close()
-            elements.append(Image(img_buffer, width=14*cm, height=8*cm))
-        else:
-            elements.append(Paragraph("Nema validnih datuma za prikaz", normal_style))
-    elements.append(PageBreak())
-    
-    # 5. PARETO ANALIZA
-    elements.append(Paragraph("5. Pareto analiza (80/20)", sekcija_style))
-    if "Nabavna cena" in df_copy.columns and "Količina" in df_copy.columns:
-        df_copy["Ukupna vrednost"] = df_copy["Nabavna cena"] * df_copy["Količina"]
-        pareto = df_copy.sort_values("Ukupna vrednost", ascending=False)
-        pareto["Kumulativni %"] = (pareto["Ukupna vrednost"].cumsum() / pareto["Ukupna vrednost"].sum() * 100).round(2)
-        
-        table_data = [["Broj reklamacije", "Naziv", "Vrednost", "Kum.%"]]
-        for _, r in pareto.head(15).iterrows():
-            table_data.append([str(r["Broj reklamacije"])[:12], str(r["Naziv artikla"])[:25], f"{r['Ukupna vrednost']:,.0f}", f"{r['Kumulativni %']}%"])
-        t = Table(table_data, colWidths=[2.5*cm, 5*cm, 3*cm, 2.5*cm])
-        t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 7), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC'))]))
-        elements.append(t)
-        elements.append(Spacer(1, 0.3*cm))
-        granica = pareto[pareto["Kumulativni %"] <= 80].shape[0]
-        elements.append(Paragraph(f"📊 {granica} artikala čini 80% ukupne vrednosti", bold_style))
-        elements.append(Spacer(1, 0.5*cm))
-        
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.bar(range(20), pareto["Ukupna vrednost"].head(20), color='#1F4E79')
-        ax.axhline(y=pareto["Ukupna vrednost"].sum() * 0.8, color='red', linestyle='--', label='80% granica')
-        ax.set_xlabel('Redni broj')
-        ax.set_ylabel('Vrednost')
-        ax.set_title('Pareto analiza')
-        ax.legend()
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=14*cm, height=8*cm))
-    elements.append(PageBreak())
-    
-    # 6. TOP 10 NAJSKUPLJIH
-    elements.append(Paragraph("6. Top 10 najskupljih artikala", sekcija_style))
-    if "Nabavna cena" in df_copy.columns:
-        naj = df_copy.nlargest(10, "Nabavna cena")[["Broj reklamacije", "Naziv artikla", "Nabavna cena", "Brend"]]
-        table_data = [["Broj reklamacije", "Naziv", "Cena (RSD)", "Brend"]]
-        for _, r in naj.iterrows():
-            table_data.append([str(r["Broj reklamacije"])[:12], str(r["Naziv artikla"])[:25], f"{r['Nabavna cena']:,.2f}", str(r["Brend"])])
-        t = Table(table_data, colWidths=[2.5*cm, 5*cm, 3*cm, 2.5*cm])
-        t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 7), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC')), ('ALIGN', (2,1), (2,-1), 'RIGHT')]))
-        elements.append(t)
-        elements.append(Spacer(1, 0.5*cm))
-        
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.barh(naj["Naziv artikla"].str[:20], naj["Nabavna cena"], color='#1F4E79')
-        ax.set_xlabel('Cena (RSD)')
-        ax.set_title('Top 10 najskupljih')
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-        img_buffer.seek(0)
-        plt.close()
-        elements.append(Image(img_buffer, width=14*cm, height=8*cm))
-    elements.append(PageBreak())
-    
-    # 7. ANALIZA ROKOVA
-    elements.append(Paragraph("7. Analiza rokova (30 dana)", sekcija_style))
-    if "Status roka" in df_copy.columns and "Starost (dani)" in df_copy.columns:
-        df_rok = df_copy.copy()
-        df_rok["Datum obrade"] = pd.to_datetime(df_rok["Datum obrade"], errors="coerce")
-        danas = datetime.now()
-        df_rok = df_rok[(df_rok["Datum obrade"].notna()) & (df_rok["Datum obrade"] <= danas)]
-        
-        if len(df_rok) > 0:
-            u_roku = df_rok[df_rok["Status roka"] == "✅ U roku"].shape[0]
-            prekoraceno = df_rok[df_rok["Status roka"] == "❌ Prekoračen"].shape[0]
-            ukupno_rok = len(df_rok)
-            
-            table_data = [
-                ["✅ U roku (≤30 dana)", u_roku, f"{u_roku/ukupno_rok*100:.1f}%" if ukupno_rok > 0 else "0%"],
-                ["❌ Prekoračen (>30 dana)", prekoraceno, f"{prekoraceno/ukupno_rok*100:.1f}%" if ukupno_rok > 0 else "0%"],
-                ["Prosečno prekoračenje", f"{df_rok['Prekoračenje (dani)'].mean().round(0):.0f} dana", ""],
-                ["Maksimalno prekoračenje", f"{df_rok['Prekoračenje (dani)'].max():.0f} dana", ""]
-            ]
-            t = Table(table_data, colWidths=[6*cm, 4*cm, 4*cm])
-            t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 9), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC')), ('ALIGN', (1,0), (2,-1), 'CENTER')]))
-            elements.append(t)
-            elements.append(Spacer(1, 0.5*cm))
-            
-            elements.append(Paragraph("Top 10 najvećih prekoračenja", sekcija_style))
-            table_data = [["Broj reklamacije", "Naziv", "Starost", "Prekoračenje", "Otvorio"]]
-            for _, r in df_rok.nlargest(10, "Prekoračenje (dani)").iterrows():
-                table_data.append([
-                    str(r["Broj reklamacije"])[:12],
-                    str(r["Naziv artikla"])[:25],
-                    str(r["Starost (dani)"]),
-                    str(r["Prekoračenje (dani)"]),
-                    str(r["reklamacija otvorena od strane"])[:15]
-                ])
-            t = Table(table_data, colWidths=[2.5*cm, 5*cm, 2*cm, 2.5*cm, 3*cm])
-            t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 7), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC'))]))
-            elements.append(t)
-            elements.append(Spacer(1, 0.5*cm))
-            
-            fig, ax = plt.subplots(figsize=(6, 4))
-            statusi = ["✅ U roku", "❌ Prekoračen"]
-            brojevi = [u_roku, prekoraceno]
-            colors_pie = ['#2E8B57', '#DC143C']
-            ax.pie(brojevi, labels=statusi, autopct='%1.0f%%', colors=colors_pie, startangle=90)
-            ax.set_title('Status rokova reklamacija')
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
-            img_buffer.seek(0)
-            plt.close()
-            elements.append(Image(img_buffer, width=10*cm, height=8*cm))
-        else:
-            elements.append(Paragraph("Nema validnih podataka za analizu rokova", normal_style))
-    else:
-        elements.append(Paragraph("Nedostaju podaci za analizu rokova", normal_style))
-    
-    elements.append(PageBreak())
-    elements.append(Spacer(1, 5*cm))
-    elements.append(Paragraph("Izveštaj generisan automatski", normal_style))
-    elements.append(Paragraph(f"Tehnomanija © {datetime.now().year}", normal_style))
-    
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer.getvalue()
-
-# ============================
 # EMAIL SLANJE
 # ============================
 
@@ -1297,7 +952,7 @@ def posalji_email(primalac, excel_data=None, pdf_data=None, dodatne_adrese=None)
         if dodatne_adrese:
             msg["CC"] = ", ".join(dodatne_adrese)
         
-        body = f"Poštovani,\n\nU prilogu vam dostavljamo izveštaj o reciklaži sa stanjem od {datetime.now().strftime('%d.%m.%Y')}.\n\nIzveštaj sadrži analizu rokova (30 dana) i predlog za prodaju trećem licu.\n\nIzveštaj je generisan automatski.\n\nS poštovanjem,\nTehnomanija"
+        body = f"Poštovani,\n\nU prilogu vam dostavljamo izveštaj o reciklaži sa stanjem od {datetime.now().strftime('%d.%m.%Y')}.\n\nIzveštaj sadrži analizu rokova i predlog za prodaju trećem licu.\n\nIzveštaj je generisan automatski.\n\nS poštovanjem,\nTehnomanija"
         msg.attach(MIMEText(body, "plain"))
         
         if excel_data is not None and isinstance(excel_data, bytes):
@@ -1330,6 +985,48 @@ def posalji_email(primalac, excel_data=None, pdf_data=None, dodatne_adrese=None)
         return False, f"Greška pri slanju emaila: {str(e)}"
 
 # ============================
+# PDF GENERATOR
+# ============================
+
+def generisi_pdf(df):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
+    styles = getSampleStyleSheet()
+    elements = []
+    
+    naslov_style = ParagraphStyle('Naslov', parent=styles['Heading1'], fontName=FONT_NAME, fontSize=24, textColor=colors.HexColor('#1F4E79'), alignment=1, spaceAfter=20, spaceBefore=30)
+    sekcija_style = ParagraphStyle('Sekcija', parent=styles['Heading3'], fontName=FONT_NAME, fontSize=14, textColor=colors.HexColor('#2E75B6'), spaceAfter=8, spaceBefore=12)
+    normal_style = ParagraphStyle('Normal', parent=styles['Normal'], fontName=FONT_NAME, fontSize=10, spaceAfter=4)
+    
+    df_copy = df.copy()
+    if "Datum obrade" in df_copy.columns:
+        df_copy["Datum obrade"] = pd.to_datetime(df_copy["Datum obrade"], errors="coerce")
+        danas = datetime.now()
+        df_copy = df_copy[(df_copy["Datum obrade"].notna()) & (df_copy["Datum obrade"] <= danas)]
+    
+    ukupno = df_copy["Količina"].sum() if "Količina" in df_copy.columns else 0
+    vrednost = (df_copy["Nabavna cena"] * df_copy["Količina"]).sum() if "Nabavna cena" in df_copy.columns and "Količina" in df_copy.columns else 0
+    broj_brendova = df_copy["Brend"].nunique() if "Brend" in df_copy.columns else 0
+    
+    # NASLOVNA
+    elements.append(Spacer(1, 4*cm))
+    elements.append(Paragraph("Tehnomanija", naslov_style))
+    elements.append(Spacer(1, 0.5*cm))
+    elements.append(Paragraph("IZVEŠTAJ O RECIKLAŽI", naslov_style))
+    elements.append(Spacer(1, 0.5*cm))
+    elements.append(Paragraph(f"Generisano: {datetime.now().strftime('%d.%m.%Y %H:%M')}", normal_style))
+    elements.append(Spacer(1, 2*cm))
+    
+    kpi_data = [["Ukupno artikala", f"{ukupno:,}"], ["Ukupna vrednost", f"{vrednost:,.2f} RSD"], ["Broj brendova", str(broj_brendova)]]
+    kpi_table = Table(kpi_data, colWidths=[7*cm, 5*cm])
+    kpi_table.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 11), ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (0,-1), colors.white), ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#CCCCCC')), ('ALIGN', (1,0), (1,-1), 'RIGHT')]))
+    elements.append(kpi_table)
+    
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+# ============================
 # STREAMLIT UI
 # ============================
 
@@ -1344,15 +1041,7 @@ if uploaded_file is not None:
             lookup = pripremi_lookup(reklamacije)
             df = spoji(reciklaza, lookup)
         st.success(f"✅ Učitano: {len(reciklaza)} redova, spojeno: {len(df)} redova")
-        
-        # Debug: Provera novembra
-        if "Datum obrade" in df.columns:
-            df["Datum obrade"] = pd.to_datetime(df["Datum obrade"], errors="coerce")
-            novembar = df[df["Datum obrade"].dt.month == 11]
-            if len(novembar) > 0:
-                st.warning(f"⚠️ Pronađeno {len(novembar)} redova sa novembrom!")
-            else:
-                st.success("✅ Nema novembarskih datuma!")
+        st.session_state.df = df
         
         st.markdown("---")
         
@@ -1375,16 +1064,6 @@ if uploaded_file is not None:
             col2.metric("💰 Ukupna vrednost", f"{vrednost:,.2f} RSD")
             col3.metric("🏷️ Broj brendova", df["Brend"].nunique() if "Brend" in df.columns else 0)
             col4.metric("📂 Robnih grupa", df["Robna grupa"].nunique() if "Robna grupa" in df.columns else 0)
-            
-            st.markdown("---")
-            if "Status roka" in df.columns:
-                u_roku = df[df["Status roka"] == "✅ U roku"].shape[0]
-                prekoraceno = df[df["Status roka"] == "❌ Prekoračen"].shape[0]
-                col1, col2, col3 = st.columns(3)
-                col1.metric("✅ U roku (≤30 dana)", u_roku)
-                col2.metric("❌ Prekoračen (>30 dana)", prekoraceno)
-                if u_roku + prekoraceno > 0:
-                    col3.metric("📊 Procenat u roku", f"{u_roku/(u_roku+prekoraceno)*100:.1f}%")
         
         with tab2:
             st.subheader("Napredne metrike")
@@ -1395,27 +1074,6 @@ if uploaded_file is not None:
                 fig = px.bar(pareto.head(20), x="Naziv artikla", y="Ukupna vrednost", title="Pareto analiza - Top 20 artikala")
                 st.plotly_chart(fig, use_container_width=True)
                 st.info(f"📊 {pareto[pareto['Kumulativni %'] <= 80].shape[0]} artikala čini 80% ukupne vrednosti")
-            
-            st.markdown("---")
-            st.subheader("🕐 Starost reklamacija")
-            if "datum otvaranja" in df.columns and "Datum obrade" in df.columns:
-                df_starost = df.copy()
-                df_starost["datum otvaranja"] = pd.to_datetime(df_starost["datum otvaranja"], errors="coerce")
-                df_starost["Datum obrade"] = pd.to_datetime(df_starost["Datum obrade"], errors="coerce")
-                danas = datetime.now()
-                df_starost = df_starost[
-                    (df_starost["Datum obrade"].notna()) & 
-                    (df_starost["datum otvaranja"].notna()) &
-                    (df_starost["Datum obrade"] <= danas)
-                ]
-                if len(df_starost) > 0:
-                    df_starost["Starost (dani)"] = (df_starost["Datum obrade"] - df_starost["datum otvaranja"]).dt.days
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("📅 Prosečna starost", f"{df_starost['Starost (dani)'].mean().round(0):.0f} dana")
-                    col2.metric("⏳ Najstarija reklamacija", f"{df_starost['Starost (dani)'].max():.0f} dana")
-                    col3.metric("🆕 Najmlađa reklamacija", f"{df_starost['Starost (dani)'].min():.0f} dana")
-                    fig = px.histogram(df_starost, x="Starost (dani)", nbins=20, title="Distribucija starosti reklamacija")
-                    st.plotly_chart(fig, use_container_width=True)
         
         with tab3:
             st.subheader("Sve analize")
@@ -1452,7 +1110,7 @@ if uploaded_file is not None:
                     try:
                         pdf_data = generisi_pdf(df)
                         st.download_button(
-                            label="📄 Preuzmi PDF (sa analizom rokova)",
+                            label="📄 Preuzmi PDF",
                             data=pdf_data,
                             file_name=f"izvestaj_{datetime.now().strftime('%Y%m%d')}.pdf",
                             mime="application/pdf",
@@ -1470,7 +1128,7 @@ if uploaded_file is not None:
                 with col2:
                     email_cc = st.text_input("Dodatne adrese (CC, odvojene zarezom)", placeholder="nikola@tehnomanija.rs, milica@tehnomanija.rs")
                 
-                col1, col2, col3 = st.columns([1, 1, 2])
+                col1, col2 = st.columns(2)
                 with col1:
                     posalji_pdf = st.checkbox("📄 Dodaj PDF", value=True)
                 with col2:
@@ -1540,26 +1198,10 @@ if uploaded_file is not None:
                         ],
                         use_container_width=True
                     )
-                    
-                    st.markdown("---")
-                    st.subheader("Filter po osobi koja je otvorila reklamaciju")
-                    if "reklamacija otvorena od strane" in df_rok.columns:
-                        osobe = ["Sve"] + sorted(df_rok["reklamacija otvorena od strane"].dropna().unique().tolist())
-                        izabrana_osoba = st.selectbox("Izaberi osobu", osobe)
-                        
-                        if izabrana_osoba != "Sve":
-                            df_filtered = df_rok[df_rok["reklamacija otvorena od strane"] == izabrana_osoba]
-                        else:
-                            df_filtered = df_rok
-                        
-                        st.dataframe(
-                            df_filtered[["Broj reklamacije", "Naziv artikla", "Starost (dani)", "Prekoračenje (dani)", "Status roka"]],
-                            use_container_width=True
-                        )
                 else:
                     st.info("Nema validnih podataka za analizu rokova")
             else:
-                st.warning("Nedostaju podaci za analizu rokova. Proverite da li Excel fajl sadrži kolonu 'Reklamacija: Created Date'.")
+                st.warning("Nedostaju podaci za analizu rokova.")
         
         with tab7:
             st.subheader("📦 Predlog za prodaju trećem licu")
@@ -1578,23 +1220,30 @@ if uploaded_file is not None:
                 cena_po_paleti = st.number_input("💰 Cena po paleti (€)", min_value=10.0, max_value=500.0, value=st.session_state.cena_po_paleti_evri, step=5.0)
                 st.session_state.cena_po_paleti_evri = cena_po_paleti
             
-            df_predlog, sazetak = generisi_predlog_prodaje(df, kurs_evra, cena_po_paleti)
-            
-            if df_predlog is not None and sazetak is not None:
+            if "Skladišna lokacija" in df.columns and "Nabavna cena" in df.columns and "Količina" in df.columns:
+                df_copy = df.copy()
+                df_copy["Ukupna nabavna vrednost (RSD)"] = df_copy["Nabavna cena"] * df_copy["Količina"]
+                
+                ukupno_paleta = df_copy["Skladišna lokacija"].nunique()
+                ukupno_artikala = df_copy["Količina"].sum()
+                ukupna_nabavna = df_copy["Ukupna nabavna vrednost (RSD)"].sum()
+                ukupna_ponuda_evri = ukupno_paleta * cena_po_paleti
+                ukupna_ponuda_rsd = ukupna_ponuda_evri * kurs_evra
+                ukupni_gubitak = ukupna_nabavna - ukupna_ponuda_rsd
+                
                 st.markdown("### 📊 Sažetak predloga")
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("📦 Ukupno artikala", sazetak["Ukupno artikala"])
-                col2.metric("📦 Ukupno paleta", sazetak["Ukupno paleta"])
-                col3.metric("💰 Ponuda (€)", f"{sazetak['Ukupna vrednost ponude (€)']:,.2f} €")
-                col4.metric("📉 Gubitak (RSD)", f"{sazetak['Ukupni gubitak (RSD)']:,.2f} RSD")
+                col1.metric("📦 Ukupno artikala", f"{ukupno_artikala:,}")
+                col2.metric("📦 Ukupno paleta", ukupno_paleta)
+                col3.metric("💰 Ponuda (€)", f"{ukupna_ponuda_evri:,.2f} €")
+                col4.metric("📉 Gubitak (RSD)", f"{ukupni_gubitak:,.2f} RSD")
                 
                 st.markdown("### 📋 Detaljna tabela")
-                # Prikaz relevantnih kolona
                 prikaz_kolone = ["Broj reklamacije", "Naziv artikla", "Brend", "Količina", 
                                 "Nabavna cena", "Ukupna nabavna vrednost (RSD)", 
                                 "Skladišna lokacija", "Status roka"]
-                dostupne = [c for c in prikaz_kolone if c in df_predlog.columns]
-                st.dataframe(df_predlog[dostupne], use_container_width=True)
+                dostupne = [c for c in prikaz_kolone if c in df_copy.columns]
+                st.dataframe(df_copy[dostupne], use_container_width=True)
                 
                 st.markdown("### 📤 Izvezi predlog")
                 try:
@@ -1614,9 +1263,7 @@ if uploaded_file is not None:
                         use_container_width=True
                     )
                 except Exception as e:
-                    st.error(f"Greška: {e}")
+                    st.error(f"Greška pri izvozu: {e}")
             else:
-                if isinstance(sazetak, str):
-                    st.warning(sazetak)
-                else:
-                    st.warning("Nema podataka za prikaz")
+                st.warning("Nedostaju potrebne kolone za generisanje predloga.")
+                st.write("Dostupne kolone:", list(df.columns))
