@@ -442,7 +442,7 @@ def upisi_vremenski_trend(ws, df):
         ws.column_dimensions[get_column_letter(col_idx)].width = 25
 
 # ============================
-# SPECIFIKACIJA ISPRAVKE FINANSIJSKE VREDNOSTI
+# SPECIFIKACIJA ISPRAVKE FINANSIJSKE VREDNOSTI (ISPRAVLJENA)
 # ============================
 
 def upisi_specifikaciju_ispravke(ws, df, kurs_evra=117, cena_po_paleti_evri=110, pdv_stopa=20):
@@ -463,14 +463,10 @@ def upisi_specifikaciju_ispravke(ws, df, kurs_evra=117, cena_po_paleti_evri=110,
     
     df_copy = df.copy()
     
-    # Izračunavanje PDV-a
-    df_copy["Nabavna cena sa PDV"] = df_copy["Nabavna cena"] * (1 + pdv_stopa / 100)
-    df_copy["Ukupna nabavna sa PDV"] = df_copy["Nabavna cena sa PDV"] * df_copy["Količina"]
-    
-    # Ukupno paleta
-    ukupno_paleta = df_copy["Skladišna lokacija"].nunique()
+    # Ukupni agregati za % obezvređenja
     ukupna_kolicina = df_copy["Količina"].sum()
     ukupna_nabavna_bez_pdv = (df_copy["Nabavna cena"] * df_copy["Količina"]).sum()
+    ukupno_paleta = df_copy["Skladišna lokacija"].nunique()
     ukupna_ponuda_bruto = ukupno_paleta * cena_po_paleti_evri * kurs_evra
     ukupna_ponuda_neto = ukupna_ponuda_bruto / (1 + pdv_stopa / 100)
     
@@ -478,11 +474,7 @@ def upisi_specifikaciju_ispravke(ws, df, kurs_evra=117, cena_po_paleti_evri=110,
     razlika = ukupna_nabavna_bez_pdv - ukupna_ponuda_neto
     procenat_obezvredenja = (razlika / ukupna_nabavna_bez_pdv) * 100 if ukupna_nabavna_bez_pdv > 0 else 0
     
-    # Cena po komadu = MP cena / ukupan broj artikala
-    cena_po_komadu_neto = ukupna_ponuda_neto / ukupna_kolicina if ukupna_kolicina > 0 else 0
-    cena_po_komadu_bruto = cena_po_komadu_neto * (1 + pdv_stopa / 100)
-    
-    # Sumarna tabela
+    # Sumarna tabela (zaglavlje)
     row += 1
     ws.cell(row=row, column=1, value="SUMNARNI PREGLED")
     ws.cell(row=row, column=1).font = Font(bold=True, size=12, color=HEADER_BG)
@@ -511,16 +503,19 @@ def upisi_specifikaciju_ispravke(ws, df, kurs_evra=117, cena_po_paleti_evri=110,
     ws.cell(row=row, column=6).value = f"{round(procenat_obezvredenja, 2)}%"
     row += 2
     
-    # Tabela detalja po artiklima
+    # Detaljna specifikacija (svaki artikal)
     ws.cell(row=row, column=1, value="DETALJNA SPECIFIKACIJA")
     ws.cell(row=row, column=1).font = Font(bold=True, size=12, color=HEADER_BG)
     row += 1
     
+    # Kolone kako je traženo
     headers = [
         "Šifra", "Artikli", "Jed. Mera", "Lager",
-        "Ponuda po komadu bez PDV-a", "Ponuda po kom sa PDV",
+        "Ponuda po komadu bez PDV-a",
+        "Ponuda po kom sa PDV",
         "Ukupna vrednost ponude sa PDV-om",
-        "Nabavna cena bez PDV-a", "Nabavna cena sa PDV-om"
+        "Nabavna cena bez pdv-a",
+        "Nabavna cena sa pdv-om"
     ]
     
     sifra_kolona = "ID uređaja" if "ID uređaja" in df_copy.columns else "Broj reklamacije"
@@ -532,15 +527,22 @@ def upisi_specifikaciju_ispravke(ws, df, kurs_evra=117, cena_po_paleti_evri=110,
     
     # Podaci po artiklima
     for _, r in df_copy.iterrows():
+        # Izračun za ovaj artikal
+        nabavna_bez_pdv = r["Nabavna cena"]
+        nabavna_sa_pdv = nabavna_bez_pdv * (1 + pdv_stopa / 100)
+        ponuda_po_komadu_neto = nabavna_bez_pdv * (1 - procenat_obezvredenja / 100)
+        ponuda_po_komadu_bruto = ponuda_po_komadu_neto * (1 + pdv_stopa / 100)
+        ukupna_vrednost_ponude_bruto = ponuda_po_komadu_bruto * r["Količina"]
+        
         ws.cell(row=row, column=1).value = excel_compatible(r.get(sifra_kolona, "N/A"))
         ws.cell(row=row, column=2).value = excel_compatible(r["Naziv artikla"])
         ws.cell(row=row, column=3).value = "kom"
         ws.cell(row=row, column=4).value = excel_compatible(r["Količina"])
-        ws.cell(row=row, column=5).value = excel_compatible(round(cena_po_komadu_neto, 2))
-        ws.cell(row=row, column=6).value = excel_compatible(round(cena_po_komadu_bruto, 2))
-        ws.cell(row=row, column=7).value = excel_compatible(round(cena_po_komadu_bruto * r["Količina"], 2))
-        ws.cell(row=row, column=8).value = excel_compatible(r["Nabavna cena"])
-        ws.cell(row=row, column=9).value = excel_compatible(r["Nabavna cena sa PDV"])
+        ws.cell(row=row, column=5).value = excel_compatible(round(ponuda_po_komadu_neto, 2))
+        ws.cell(row=row, column=6).value = excel_compatible(round(ponuda_po_komadu_bruto, 2))
+        ws.cell(row=row, column=7).value = excel_compatible(round(ukupna_vrednost_ponude_bruto, 2))
+        ws.cell(row=row, column=8).value = excel_compatible(nabavna_bez_pdv)
+        ws.cell(row=row, column=9).value = excel_compatible(round(nabavna_sa_pdv, 2))
         row += 1
     
     for col in range(1, 10):
@@ -811,7 +813,6 @@ def generisi_pdf(df):
         ukupna_ponuda_neto = ukupna_ponuda_bruto / (1 + st.session_state.pdv_stopa / 100)
         razlika = ukupna_nabavna_bez_pdv - ukupna_ponuda_neto
         procenat = (razlika / ukupna_nabavna_bez_pdv) * 100 if ukupna_nabavna_bez_pdv > 0 else 0
-        cena_po_komadu_neto = ukupna_ponuda_neto / ukupna_kolicina if ukupna_kolicina > 0 else 0
         
         sum_data = [
             ["Magacin", "Zbir Količina", "Zbir Nabavna cena bez PDV", "MP cena bez PDV", "Razlika", "% obezvređenja"],
@@ -826,8 +827,10 @@ def generisi_pdf(df):
         sum_table.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 8), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC')), ('ALIGN', (1,0), (-1,-1), 'RIGHT')]))
         elements.append(sum_table)
         
+        # Dodaj kratak opis cene po komadu (prosečna)
+        avg_cena_neto = ukupna_ponuda_neto / ukupna_kolicina if ukupna_kolicina > 0 else 0
         elements.append(Spacer(1, 0.5*cm))
-        elements.append(Paragraph(f"Cena po komadu (neto, bez PDV): {cena_po_komadu_neto:,.2f} RSD", bold_style))
+        elements.append(Paragraph(f"Prosečna cena po komadu (neto): {avg_cena_neto:,.2f} RSD", bold_style))
     
     doc.build(elements)
     buffer.seek(0)
@@ -1050,10 +1053,10 @@ if uploaded_file is not None:
             st.subheader("💰 Specifikacija ispravke finansijske vrednosti")
             st.info("""
             **Dokument prikazuje finansijski efekat prodaje trećem licu.**
-            - **Nabavna cena** je bez PDV-a (20%)
-            - **Ponuda** je sa PDV-om (bruto)
             - **% obezvređenja** = (Nabavna vrednost - MP cena) / Nabavna vrednost × 100
-            - **Cena po komadu** = MP cena / Ukupan broj artikala
+            - **Ponuda po komadu bez PDV** = Nabavna cena × (1 - % obezvređenja / 100)
+            - **Ponuda sa PDV** = Ponuda bez PDV × (1 + PDV stopa / 100)
+            - **Ukupna vrednost ponude** = Ponuda sa PDV × Količina
             """)
             
             st.markdown(f"**Datum izveštaja:** {datetime.now().strftime('%d.%m.%Y %H:%M')}")
@@ -1071,7 +1074,6 @@ if uploaded_file is not None:
                 
                 razlika = ukupna_nabavna_bez_pdv - ukupna_ponuda_neto
                 procenat = (razlika / ukupna_nabavna_bez_pdv) * 100 if ukupna_nabavna_bez_pdv > 0 else 0
-                cena_po_komadu = ukupna_ponuda_neto / ukupna_kolicina if ukupna_kolicina > 0 else 0
                 
                 st.markdown("### 📊 Sumarni pregled")
                 sum_data = {
@@ -1080,15 +1082,30 @@ if uploaded_file is not None:
                     "Zbir Nabavna cena bez PDV": f"{ukupna_nabavna_bez_pdv:,.2f}",
                     "MP cena bez PDV": f"{ukupna_ponuda_neto:,.2f}",
                     "Razlika": f"{razlika:,.2f}",
-                    "% obezvređenja": f"{procenat:.2f}%",
-                    "Cena po komadu (neto)": f"{cena_po_komadu:,.2f} RSD"
+                    "% obezvređenja": f"{procenat:.2f}%"
                 }
                 st.dataframe(pd.DataFrame([sum_data]), use_container_width=True)
                 
                 st.markdown("### 📋 Detaljna specifikacija")
-                prikaz = ["Broj reklamacije", "Naziv artikla", "Količina", "Nabavna cena", "Nabavna cena sa PDV", "Ukupna nabavna sa PDV"]
-                dostupne = [c for c in prikaz if c in df_copy.columns]
-                st.dataframe(df_copy[dostupne], use_container_width=True)
+                # Dodaj izračunate kolone za prikaz
+                df_display = df_copy.copy()
+                df_display["Ponuda po komadu bez PDV"] = df_display["Nabavna cena"] * (1 - procenat / 100)
+                df_display["Ponuda po kom sa PDV"] = df_display["Ponuda po komadu bez PDV"] * (1 + st.session_state.pdv_stopa / 100)
+                df_display["Ukupna vrednost ponude sa PDV"] = df_display["Ponuda po kom sa PDV"] * df_display["Količina"]
+                df_display["Nabavna cena sa pdv"] = df_display["Nabavna cena"] * (1 + st.session_state.pdv_stopa / 100)
+                
+                prikaz = ["ID uređaja", "Naziv artikla", "Količina", 
+                         "Ponuda po komadu bez PDV", "Ponuda po kom sa PDV", 
+                         "Ukupna vrednost ponude sa PDV", "Nabavna cena", "Nabavna cena sa pdv"]
+                dostupne = [c for c in prikaz if c in df_display.columns]
+                # Preimenuj kolone za prikaz
+                df_display = df_display.rename(columns={
+                    "ID uređaja": "Šifra",
+                    "Naziv artikla": "Artikli",
+                    "Količina": "Lager",
+                    "Nabavna cena": "Nabavna cena bez pdv-a"
+                })
+                st.dataframe(df_display[dostupne], use_container_width=True)
         
         with tab8:
             st.subheader("📤 Izvoz")
