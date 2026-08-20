@@ -442,7 +442,7 @@ def upisi_vremenski_trend(ws, df):
         ws.column_dimensions[get_column_letter(col_idx)].width = 25
 
 # ============================
-# SPECIFIKACIJA ISPRAVKE FINANSIJSKE VREDNOSTI (ISPRAVLJENA)
+# SPECIFIKACIJA ISPRAVKE FINANSIJSKE VREDNOSTI
 # ============================
 
 def upisi_specifikaciju_ispravke(ws, df, kurs_evra=117, cena_po_paleti_evri=110, pdv_stopa=20):
@@ -1049,7 +1049,7 @@ if uploaded_file is not None:
             else:
                 st.warning("Nedostaju podaci za analizu rokova")
         
-                with tab7:
+        with tab7:
             st.subheader("💰 Specifikacija ispravke finansijske vrednosti")
             st.info("""
             **Dokument prikazuje finansijski efekat prodaje trećem licu.**
@@ -1095,10 +1095,10 @@ if uploaded_file is not None:
                 df_display["Ukupna vrednost ponude sa PDV"] = df_display["Ponuda po kom sa PDV"] * df_display["Količina"]
                 df_display["Nabavna cena sa pdv"] = df_display["Nabavna cena"] * (1 + st.session_state.pdv_stopa / 100)
                 
-                # Odredi šifru – ako postoji ID uređaja, koristi ga, inače Broj reklamacije
+                # Odredi šifru
                 sifra_kol = "ID uređaja" if "ID uređaja" in df_display.columns else "Broj reklamacije"
                 
-                # Preimenuj kolone za prikaz
+                # Preimenuj kolone
                 df_display = df_display.rename(columns={
                     sifra_kol: "Šifra",
                     "Naziv artikla": "Artikli",
@@ -1106,11 +1106,11 @@ if uploaded_file is not None:
                     "Nabavna cena": "Nabavna cena bez pdv-a"
                 })
                 
-                # Definiši redosled kolona za prikaz (sa novim nazivima)
+                # Definiši redosled kolona
                 dostupne = ["Šifra", "Artikli", "Lager", 
                             "Ponuda po komadu bez PDV", "Ponuda po kom sa PDV", 
                             "Ukupna vrednost ponude sa PDV", "Nabavna cena bez pdv-a", "Nabavna cena sa pdv"]
-                # Filtriraj samo one koje stvarno postoje
+                # Filtriraj samo one koje postoje
                 dostupne = [c for c in dostupne if c in df_display.columns]
                 
                 st.dataframe(df_display[dostupne], use_container_width=True)
