@@ -1563,28 +1563,6 @@ if uploaded_file is not None:
         
         with tab7:
             st.subheader("📦 Predlog za prodaju trećem licu")
-            # DIJAGNOSTIKA – tačan broj skladišnih lokacija
-st.subheader("🔍 Dijagnostika: Skladišne lokacije")
-
-if "Skladišna lokacija" in df.columns:
-    # Prikaži sve unikatne lokacije
-    sve_lokacije = sorted(df["Skladišna lokacija"].unique())
-    broj_lokacija = len(sve_lokacije)
-    
-    st.write(f"**📊 Ukupno redova u tabeli:** {len(df)}")
-    st.write(f"**📦 Broj unikatnih skladišnih lokacija:** {broj_lokacija}")
-    
-    # Prikaži sve lokacije
-    st.write("**Sve unikatne lokacije (sortirano):**")
-    st.dataframe(pd.DataFrame(sve_lokacije, columns=["Skladišna lokacija"]))
-    
-    # Proveri da li ima praznih vrednosti
-    prazne = df["Skladišna lokacija"].isna().sum()
-    if prazne > 0:
-        st.warning(f"⚠️ Ima {prazne} redova sa praznom skladišnom lokacijom!")
-else:
-    st.error("❌ Kolona 'Skladišna lokacija' ne postoji u podacima!")
-    st.write("Dostupne kolone:", list(df.columns))
             st.info("""
             **📌 Predlog obuhvata SVE artikle na reciklaži.**
             
