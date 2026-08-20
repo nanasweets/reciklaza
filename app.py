@@ -3,7 +3,7 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
 import re
 import plotly.express as px
@@ -26,25 +26,20 @@ import matplotlib
 matplotlib.use('Agg')
 
 # ============================
-# REGISTRACIJA FONTA (srpska slova)
+# REGISTRACIJA FONTA
 # ============================
 
 FONT_NAME = 'Helvetica'
 try:
-    # Pokušaj učitati DejaVu iz sistema (Streamlit Cloud)
     pdfmetrics.registerFont(TTFont('DejaVu', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
     pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
     FONT_NAME = 'DejaVu'
-    print("✅ DejaVu font učitan iz sistema")
 except:
     try:
-        # Pokušaj iz root foldera
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         FONT_NAME = 'DejaVu'
-        print("✅ DejaVu font učitan iz root foldera")
-    except Exception as e:
-        print(f"⚠️ DejaVu nije pronađen: {e}, koristim Helvetica")
+    except:
         FONT_NAME = 'Helvetica'
 
 # ============================
@@ -62,6 +57,7 @@ MAPPING = {
     "klasifikacija": "Klasifikacija",
     "način razduženja kupca": "Način razduženja kupca",
     "serijski broj": "Serijski broj uređaja",
+    "datum otvaranja": "Reklamacija: Created Date",
 }
 
 KOLONE_OUTPUT = [
@@ -72,6 +68,11 @@ KOLONE_OUTPUT = [
     "broj pošiljke", "vrednost fakture",
     "reklamacija otvorena od strane", "model reklamacije",
     "klasifikacija", "način razduženja kupca", "serijski broj",
+    "datum otvaranja",
+    "Starost (dani)",
+    "Rok (30 dana)",
+    "Prekoračenje (dani)",
+    "Status roka",
 ]
 
 HEADER_BG = "1F4E79"
@@ -80,37 +81,29 @@ LOOKUP_BG = "D9E1F2"
 LOOKUP_FONT = "1F4E79"
 
 # ============================
-# FUNKCIJE ZA ČIŠĆENJE DATUMA
+# FUNKCIJE ZA ČIŠĆENJE
 # ============================
 
 def ocisti_datum(vrednost):
-    """Pretvara različite formate datuma u pandas datetime"""
     if pd.isna(vrednost):
         return pd.NaT
     if isinstance(vrednost, (pd.Timestamp, datetime)):
         return vrednost
     tekst = str(vrednost).strip()
-    # Format dd.mm.yyyy
     try:
         return pd.to_datetime(tekst, format='%d.%m.%Y', errors='coerce')
     except:
         pass
-    # Format yyyy-mm-dd 0:00:00
     try:
         if ' 0:00:00' in tekst:
             tekst = tekst.replace(' 0:00:00', '')
         return pd.to_datetime(tekst, format='%Y-%m-%d', errors='coerce')
     except:
         pass
-    # Opšti parser
     try:
         return pd.to_datetime(tekst, errors='coerce')
     except:
         return pd.NaT
-
-# ============================
-# OBRADA PODATAKA
-# ============================
 
 def cisti_broj(vrednost):
     if pd.isna(vrednost):
@@ -127,6 +120,10 @@ def pronadji_kolonu_broja(df):
             return kol
     return df.columns[0]
 
+# ============================
+# OBRADA PODATAKA SA ROKOVIMA
+# ============================
+
 def ucitaj_podatke(fajl):
     xl = pd.ExcelFile(fajl)
     if SHEET_RECIKLAZA not in xl.sheet_names:
@@ -138,10 +135,8 @@ def ucitaj_podatke(fajl):
     reciklaza = pd.read_excel(fajl, sheet_name=SHEET_RECIKLAZA, header=0)
     reklamacije = pd.read_excel(fajl, sheet_name=SHEET_REKLAMACIJE, header=0)
     
-    # OČISTI DATUME
     if "Datum obrade" in reciklaza.columns:
         reciklaza["Datum obrade"] = reciklaza["Datum obrade"].apply(ocisti_datum)
-        # Odbaci nevalidne datume
         reciklaza = reciklaza[reciklaza["Datum obrade"].notna()]
     
     return reciklaza, reklamacije
@@ -152,6 +147,41 @@ def pripremi_lookup(reklamacije):
     rek["_kljuc"] = rek[kolona_broja].apply(cisti_broj)
     rek = rek[rek["_kljuc"] != ""]
     return rek.set_index("_kljuc")
+
+def izracunaj_rokove(df):
+    """Dodaje kolone za praćenje rokova (30 dana)"""
+    df_copy = df.copy()
+    
+    if "datum otvaranja" in df_copy.columns and "Datum obrade" in df_copy.columns:
+        df_copy["datum otvaranja"] = pd.to_datetime(df_copy["datum otvaranja"], errors="coerce")
+        df_copy["Datum obrade"] = pd.to_datetime(df_copy["Datum obrade"], errors="coerce")
+        
+        # Filtriranje budućih datuma
+        danas = datetime.now()
+        df_copy = df_copy[
+            (df_copy["Datum obrade"].notna()) & 
+            (df_copy["Datum obrade"] <= danas)
+        ]
+        
+        if len(df_copy) > 0:
+            df_copy["Starost (dani)"] = (df_copy["Datum obrade"] - df_copy["datum otvaranja"]).dt.days
+            df_copy["Rok (30 dana)"] = df_copy["datum otvaranja"] + pd.Timedelta(days=30)
+            df_copy["Prekoračenje (dani)"] = df_copy["Starost (dani)"] - 30
+            df_copy["Status roka"] = df_copy["Prekoračenje (dani)"].apply(
+                lambda x: "✅ U roku" if (pd.isna(x) or x <= 0) else "❌ Prekoračen"
+            )
+        else:
+            df_copy["Starost (dani)"] = None
+            df_copy["Rok (30 dana)"] = None
+            df_copy["Prekoračenje (dani)"] = None
+            df_copy["Status roka"] = "N/A"
+    else:
+        df_copy["Starost (dani)"] = None
+        df_copy["Rok (30 dana)"] = None
+        df_copy["Prekoračenje (dani)"] = None
+        df_copy["Status roka"] = "Nedostaju podaci"
+    
+    return df_copy
 
 def spoji(reciklaza, lookup):
     df = reciklaza.copy()
@@ -170,6 +200,10 @@ def spoji(reciklaza, lookup):
                 vrednosti.append(None)
         df[out_kol] = vrednosti
     df = df.drop(columns=["_kljuc"])
+    
+    # Izračunaj rokove
+    df = izracunaj_rokove(df)
+    
     extras = [c for c in df.columns if c not in KOLONE_OUTPUT]
     finalne = [c for c in KOLONE_OUTPUT if c in df.columns] + extras
     return df[finalne]
@@ -256,10 +290,13 @@ def upisi_kpi(ws, df):
     broj_brendova = df["Brend"].nunique() if "Brend" in df.columns else 0
     broj_grupa = df["Robna grupa"].nunique() if "Robna grupa" in df.columns else 0
     
+    # Statuse rokova
+    u_roku = df[df["Status roka"] == "✅ U roku"].shape[0] if "Status roka" in df.columns else 0
+    prekoraceno = df[df["Status roka"] == "❌ Prekoračen"].shape[0] if "Status roka" in df.columns else 0
+    
     if "Datum obrade" in df.columns:
         df_datum = df.copy()
         df_datum["Datum obrade"] = pd.to_datetime(df_datum["Datum obrade"], errors="coerce")
-        # Filter validnih datuma
         danas = datetime.now()
         df_datum = df_datum[(df_datum["Datum obrade"].notna()) & (df_datum["Datum obrade"] <= danas)]
         if len(df_datum) > 0:
@@ -279,6 +316,8 @@ def upisi_kpi(ws, df):
         ["Broj robnih grupa", broj_grupa],
         ["Period", period],
         ["Broj redova", len(df)],
+        ["✅ U roku (≤30 dana)", u_roku],
+        ["❌ Prekoračen (>30 dana)", prekoraceno],
     ]
     
     for row_idx, row in enumerate(podaci, start=1):
@@ -286,7 +325,7 @@ def upisi_kpi(ws, df):
             ws.cell(row=row_idx, column=col_idx, value=value)
     
     for col_idx in [1, 2]:
-        ws.column_dimensions[get_column_letter(col_idx)].width = 25
+        ws.column_dimensions[get_column_letter(col_idx)].width = 30
     
     for row_idx in range(1, len(podaci) + 1):
         ws.cell(row=row_idx, column=1).font = Font(bold=True, name="Arial", size=11)
@@ -421,7 +460,6 @@ def upisi_vremenski_trend(ws, df):
     
     df_datum = df.copy()
     df_datum["Datum obrade"] = pd.to_datetime(df_datum["Datum obrade"], errors="coerce")
-    
     danas = datetime.now()
     df_datum = df_datum[
         (df_datum["Datum obrade"].notna()) & 
@@ -522,6 +560,86 @@ def upisi_prevoznike(ws, df):
     
     for col in [1, 2, 3, 5, 6, 7]:
         ws.column_dimensions[get_column_letter(col)].width = 25
+
+def upisi_analiza_rokova(ws, df):
+    """Sheet: Analiza rokova (30 dana)"""
+    ws.cell(row=1, column=1, value="Analiza rokova reklamacija")
+    ws.cell(row=1, column=1).font = Font(bold=True, size=14, color=HEADER_BG)
+    
+    row = 3
+    
+    if "Status roka" not in df.columns or "Starost (dani)" not in df.columns:
+        ws.cell(row=row, column=1, value="Nedostaju podaci za analizu rokova")
+        return
+    
+    df_copy = df.copy()
+    if "Datum obrade" in df_copy.columns:
+        df_copy["Datum obrade"] = pd.to_datetime(df_copy["Datum obrade"], errors="coerce")
+        danas = datetime.now()
+        df_copy = df_copy[(df_copy["Datum obrade"].notna()) & (df_copy["Datum obrade"] <= danas)]
+    
+    if len(df_copy) == 0:
+        ws.cell(row=row, column=1, value="Nema validnih podataka za prikaz")
+        return
+    
+    # 1. Statistika
+    ws.cell(row=row, column=1, value="Statistika rokova")
+    ws.cell(row=row, column=1).font = Font(bold=True, size=12)
+    row += 1
+    
+    u_roku = df_copy[df_copy["Status roka"] == "✅ U roku"].shape[0]
+    prekoraceno = df_copy[df_copy["Status roka"] == "❌ Prekoračen"].shape[0]
+    ukupno = len(df_copy)
+    
+    ws.cell(row=row, column=1, value="Ukupno reklamacija")
+    ws.cell(row=row, column=2, value=ukupno)
+    row += 1
+    
+    ws.cell(row=row, column=1, value="✅ U roku (≤30 dana)")
+    ws.cell(row=row, column=2, value=u_roku)
+    ws.cell(row=row, column=3, value=f"{u_roku/ukupno*100:.1f}%" if ukupno > 0 else "0%")
+    row += 1
+    
+    ws.cell(row=row, column=1, value="❌ Prekoračen (>30 dana)")
+    ws.cell(row=row, column=2, value=prekoraceno)
+    ws.cell(row=row, column=3, value=f"{prekoraceno/ukupno*100:.1f}%" if ukupno > 0 else "0%")
+    row += 2
+    
+    # 2. Prosečno prekoračenje
+    ws.cell(row=row, column=1, value="Prosečno prekoračenje (dani)")
+    ws.cell(row=row, column=2, value=excel_compatible(df_copy["Prekoračenje (dani)"].mean().round(0)))
+    row += 1
+    
+    ws.cell(row=row, column=1, value="Maksimalno prekoračenje (dani)")
+    ws.cell(row=row, column=2, value=excel_compatible(df_copy["Prekoračenje (dani)"].max()))
+    row += 1
+    
+    ws.cell(row=row, column=1, value="Prosečna starost (dani)")
+    ws.cell(row=row, column=2, value=excel_compatible(df_copy["Starost (dani)"].mean().round(0)))
+    row += 2
+    
+    # 3. Top 10 prekoračenja
+    ws.cell(row=row, column=1, value="Top 10 najvećih prekoračenja roka")
+    ws.cell(row=row, column=1).font = Font(bold=True, size=11)
+    row += 1
+    
+    headers = ["Broj reklamacije", "Naziv artikla", "Starost (dani)", "Prekoračenje (dani)", "Otvorio"]
+    for col_idx, h in enumerate(headers, start=1):
+        ws.cell(row=row, column=col_idx, value=h)
+    primeni_stil_header(ws, len(headers))
+    row += 1
+    
+    najgori = df_copy.nlargest(10, "Prekoračenje (dani)")[["Broj reklamacije", "Naziv artikla", "Starost (dani)", "Prekoračenje (dani)", "reklamacija otvorena od strane"]]
+    for _, r in najgori.iterrows():
+        ws.cell(row=row, column=1).value = excel_compatible(r["Broj reklamacije"])
+        ws.cell(row=row, column=2).value = excel_compatible(r["Naziv artikla"])
+        ws.cell(row=row, column=3).value = excel_compatible(r["Starost (dani)"])
+        ws.cell(row=row, column=4).value = excel_compatible(r["Prekoračenje (dani)"])
+        ws.cell(row=row, column=5).value = excel_compatible(r["reklamacija otvorena od strane"])
+        row += 1
+    
+    for col in range(1, 6):
+        ws.column_dimensions[get_column_letter(col)].width = 30
 
 def upisi_metrike(ws, df):
     ws.cell(row=1, column=1, value="Napredne metrike")
@@ -709,6 +827,9 @@ def formatiraj_i_sacuvaj(df):
     ws = wb.create_sheet("Po prevozniku")
     upisi_prevoznike(ws, df)
     
+    ws = wb.create_sheet("Analiza rokova")
+    upisi_analiza_rokova(ws, df)
+    
     ws = wb.create_sheet("Napredne metrike")
     upisi_metrike(ws, df)
     
@@ -717,7 +838,7 @@ def formatiraj_i_sacuvaj(df):
     return output.getvalue()
 
 # ============================
-# PDF GENERATOR (sa matplotlib)
+# PDF GENERATOR
 # ============================
 
 def generisi_pdf(df):
@@ -731,7 +852,6 @@ def generisi_pdf(df):
     normal_style = ParagraphStyle('Normal', parent=styles['Normal'], fontName=FONT_NAME, fontSize=10, spaceAfter=4)
     bold_style = ParagraphStyle('Bold', parent=styles['Normal'], fontName=FONT_NAME, fontSize=10, textColor=colors.HexColor('#1F4E79'), spaceAfter=4)
     
-    # Filtriranje podataka
     df_copy = df.copy()
     if "Datum obrade" in df_copy.columns:
         df_copy["Datum obrade"] = pd.to_datetime(df_copy["Datum obrade"], errors="coerce")
@@ -848,7 +968,7 @@ def generisi_pdf(df):
         elements.append(Image(img_buffer, width=14*cm, height=8*cm))
     elements.append(PageBreak())
     
-    # 4. VREMENSKI TREND (sa filterom)
+    # 4. VREMENSKI TREND
     elements.append(Paragraph("4. Vremenski trend", sekcija_style))
     if "Datum obrade" in df_copy.columns:
         df_datum = df_copy.copy()
@@ -941,6 +1061,66 @@ def generisi_pdf(df):
         img_buffer.seek(0)
         plt.close()
         elements.append(Image(img_buffer, width=14*cm, height=8*cm))
+    elements.append(PageBreak())
+    
+    # 7. ANALIZA ROKOVA (NOVA SEKCIJA)
+    elements.append(Paragraph("7. Analiza rokova (30 dana)", sekcija_style))
+    
+    if "Status roka" in df_copy.columns and "Starost (dani)" in df_copy.columns:
+        df_rok = df_copy.copy()
+        df_rok["Datum obrade"] = pd.to_datetime(df_rok["Datum obrade"], errors="coerce")
+        danas = datetime.now()
+        df_rok = df_rok[(df_rok["Datum obrade"].notna()) & (df_rok["Datum obrade"] <= danas)]
+        
+        if len(df_rok) > 0:
+            u_roku = df_rok[df_rok["Status roka"] == "✅ U roku"].shape[0]
+            prekoraceno = df_rok[df_rok["Status roka"] == "❌ Prekoračen"].shape[0]
+            ukupno_rok = len(df_rok)
+            
+            # Statistika
+            table_data = [
+                ["✅ U roku (≤30 dana)", u_roku, f"{u_roku/ukupno_rok*100:.1f}%" if ukupno_rok > 0 else "0%"],
+                ["❌ Prekoračen (>30 dana)", prekoraceno, f"{prekoraceno/ukupno_rok*100:.1f}%" if ukupno_rok > 0 else "0%"],
+                ["Prosečno prekoračenje", f"{df_rok['Prekoračenje (dani)'].mean().round(0):.0f} dana", ""],
+                ["Maksimalno prekoračenje", f"{df_rok['Prekoračenje (dani)'].max():.0f} dana", ""]
+            ]
+            t = Table(table_data, colWidths=[6*cm, 4*cm, 4*cm])
+            t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 9), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC')), ('ALIGN', (1,0), (2,-1), 'CENTER')]))
+            elements.append(t)
+            elements.append(Spacer(1, 0.5*cm))
+            
+            # Top 10 prekoračenja
+            elements.append(Paragraph("Top 10 najvećih prekoračenja", sekcija_style))
+            table_data = [["Broj reklamacije", "Naziv", "Starost", "Prekoračenje", "Otvorio"]]
+            for _, r in df_rok.nlargest(10, "Prekoračenje (dani)").iterrows():
+                table_data.append([
+                    str(r["Broj reklamacije"])[:12],
+                    str(r["Naziv artikla"])[:25],
+                    str(r["Starost (dani)"]),
+                    str(r["Prekoračenje (dani)"]),
+                    str(r["reklamacija otvorena od strane"])[:15]
+                ])
+            t = Table(table_data, colWidths=[2.5*cm, 5*cm, 2*cm, 2.5*cm, 3*cm])
+            t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 7), ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1F4E79')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CCCCCC'))]))
+            elements.append(t)
+            elements.append(Spacer(1, 0.5*cm))
+            
+            # Grafikon statusa
+            fig, ax = plt.subplots(figsize=(6, 4))
+            statusi = ["✅ U roku", "❌ Prekoračen"]
+            brojevi = [u_roku, prekoraceno]
+            colors_pie = ['#2E8B57', '#DC143C']
+            ax.pie(brojevi, labels=statusi, autopct='%1.0f%%', colors=colors_pie, startangle=90)
+            ax.set_title('Status rokova reklamacija')
+            img_buffer = io.BytesIO()
+            plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
+            img_buffer.seek(0)
+            plt.close()
+            elements.append(Image(img_buffer, width=10*cm, height=8*cm))
+        else:
+            elements.append(Paragraph("Nema validnih podataka za analizu rokova", normal_style))
+    else:
+        elements.append(Paragraph("Nedostaju podaci za analizu rokova", normal_style))
     
     elements.append(PageBreak())
     elements.append(Spacer(1, 5*cm))
@@ -970,7 +1150,7 @@ def posalji_email(primalac, excel_data=None, pdf_data=None, dodatne_adrese=None)
         if dodatne_adrese:
             msg["CC"] = ", ".join(dodatne_adrese)
         
-        body = f"Poštovani,\n\nU prilogu vam dostavljamo izveštaj o reciklaži sa stanjem od {datetime.now().strftime('%d.%m.%Y')}.\n\nIzveštaj je generisan automatski.\n\nS poštovanjem,\nTehnomanija"
+        body = f"Poštovani,\n\nU prilogu vam dostavljamo izveštaj o reciklaži sa stanjem od {datetime.now().strftime('%d.%m.%Y')}.\n\nIzveštaj sadrži analizu rokova (30 dana) i sve relevantne metrike.\n\nIzveštaj je generisan automatski.\n\nS poštovanjem,\nTehnomanija"
         msg.attach(MIMEText(body, "plain"))
         
         if excel_data is not None and isinstance(excel_data, bytes):
@@ -1018,20 +1198,25 @@ if uploaded_file is not None:
             df = spoji(reciklaza, lookup)
         st.success(f"✅ Učitano: {len(reciklaza)} redova, spojeno: {len(df)} redova")
         
-        # Debug: Provera datuma
+        # Debug: Provera novembra
         if "Datum obrade" in df.columns:
             df["Datum obrade"] = pd.to_datetime(df["Datum obrade"], errors="coerce")
             novembar = df[df["Datum obrade"].dt.month == 11]
             if len(novembar) > 0:
                 st.warning(f"⚠️ Pronađeno {len(novembar)} redova sa novembrom!")
-                with st.expander("🔍 Prikaži novembarske redove"):
-                    st.dataframe(novembar[["Broj reklamacije", "Datum obrade"]])
             else:
                 st.success("✅ Nema novembarskih datuma!")
         
         st.markdown("---")
         
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Pregled", "📈 Napredne metrike", "🏷️ Analize", "📋 Tabela", "📤 Izvoz"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📊 Pregled",
+            "📈 Napredne metrike",
+            "🏷️ Analize",
+            "📋 Tabela",
+            "📤 Izvoz",
+            "⏰ Rokovi"  # NOVI TAB
+        ])
         
         with tab1:
             st.subheader("Ključni pokazatelji")
@@ -1042,6 +1227,19 @@ if uploaded_file is not None:
             col2.metric("💰 Ukupna vrednost", f"{vrednost:,.2f} RSD")
             col3.metric("🏷️ Broj brendova", df["Brend"].nunique() if "Brend" in df.columns else 0)
             col4.metric("📂 Robnih grupa", df["Robna grupa"].nunique() if "Robna grupa" in df.columns else 0)
+            
+            st.markdown("---")
+            
+            # Statistika rokova
+            if "Status roka" in df.columns:
+                u_roku = df[df["Status roka"] == "✅ U roku"].shape[0]
+                prekoraceno = df[df["Status roka"] == "❌ Prekoračen"].shape[0]
+                
+                col1, col2, col3 = st.columns(3)
+                col1.metric("✅ U roku (≤30 dana)", u_roku)
+                col2.metric("❌ Prekoračen (>30 dana)", prekoraceno)
+                if u_roku + prekoraceno > 0:
+                    col3.metric("📊 Procenat u roku", f"{u_roku/(u_roku+prekoraceno)*100:.1f}%")
         
         with tab2:
             st.subheader("Napredne metrike")
@@ -1052,6 +1250,29 @@ if uploaded_file is not None:
                 fig = px.bar(pareto.head(20), x="Naziv artikla", y="Ukupna vrednost", title="Pareto analiza - Top 20 artikala")
                 st.plotly_chart(fig, use_container_width=True)
                 st.info(f"📊 {pareto[pareto['Kumulativni %'] <= 80].shape[0]} artikala čini 80% ukupne vrednosti")
+            
+            # Starost reklamacija
+            st.markdown("---")
+            st.subheader("🕐 Starost reklamacija (od otvaranja do prijema)")
+            if "datum otvaranja" in df.columns and "Datum obrade" in df.columns:
+                df_starost = df.copy()
+                df_starost["datum otvaranja"] = pd.to_datetime(df_starost["datum otvaranja"], errors="coerce")
+                df_starost["Datum obrade"] = pd.to_datetime(df_starost["Datum obrade"], errors="coerce")
+                danas = datetime.now()
+                df_starost = df_starost[
+                    (df_starost["Datum obrade"].notna()) & 
+                    (df_starost["datum otvaranja"].notna()) &
+                    (df_starost["Datum obrade"] <= danas)
+                ]
+                if len(df_starost) > 0:
+                    df_starost["Starost (dani)"] = (df_starost["Datum obrade"] - df_starost["datum otvaranja"]).dt.days
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("📅 Prosečna starost", f"{df_starost['Starost (dani)'].mean().round(0):.0f} dana")
+                    col2.metric("⏳ Najstarija reklamacija", f"{df_starost['Starost (dani)'].max():.0f} dana")
+                    col3.metric("🆕 Najmlađa reklamacija", f"{df_starost['Starost (dani)'].min():.0f} dana")
+                    
+                    fig = px.histogram(df_starost, x="Starost (dani)", nbins=20, title="Distribucija starosti reklamacija")
+                    st.plotly_chart(fig, use_container_width=True)
         
         with tab3:
             st.subheader("Sve analize")
@@ -1074,7 +1295,7 @@ if uploaded_file is not None:
                 try:
                     excel_data = formatiraj_i_sacuvaj(df)
                     st.download_button(
-                        label="📥 Preuzmi Excel",
+                        label="📥 Preuzmi Excel (10 sheet-ova)",
                         data=excel_data,
                         file_name=f"izvestaj_{datetime.now().strftime('%Y%m%d')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1088,7 +1309,7 @@ if uploaded_file is not None:
                     try:
                         pdf_data = generisi_pdf(df)
                         st.download_button(
-                            label="📄 Preuzmi PDF (sa grafikonima)",
+                            label="📄 Preuzmi PDF (sa analizom rokova)",
                             data=pdf_data,
                             file_name=f"izvestaj_{datetime.now().strftime('%Y%m%d')}.pdf",
                             mime="application/pdf",
@@ -1131,3 +1352,70 @@ if uploaded_file is not None:
                                     st.success(f"✅ {message}")
                                 else:
                                     st.error(f"❌ {message}")
+        
+        with tab6:
+            st.subheader("⏰ Analiza rokova (30 dana)")
+            
+            if "Status roka" in df.columns:
+                df_rok = df.copy()
+                if "Datum obrade" in df_rok.columns:
+                    df_rok["Datum obrade"] = pd.to_datetime(df_rok["Datum obrade"], errors="coerce")
+                    danas = datetime.now()
+                    df_rok = df_rok[(df_rok["Datum obrade"].notna()) & (df_rok["Datum obrade"] <= danas)]
+                
+                if len(df_rok) > 0:
+                    u_roku = df_rok[df_rok["Status roka"] == "✅ U roku"].shape[0]
+                    prekoraceno = df_rok[df_rok["Status roka"] == "❌ Prekoračen"].shape[0]
+                    ukupno_rok = len(df_rok)
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("📋 Ukupno", ukupno_rok)
+                    col2.metric("✅ U roku", u_roku)
+                    col3.metric("❌ Prekoračen", prekoraceno)
+                    col4.metric("📊 Procenat u roku", f"{u_roku/ukupno_rok*100:.1f}%" if ukupno_rok > 0 else "0%")
+                    
+                    st.markdown("---")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.subheader("Prosečno prekoračenje")
+                        st.metric("Dani", f"{df_rok['Prekoračenje (dani)'].mean().round(0):.0f} dana")
+                        st.metric("Maksimalno", f"{df_rok['Prekoračenje (dani)'].max():.0f} dana")
+                    
+                    with col2:
+                        fig = px.pie(
+                            values=[u_roku, prekoraceno],
+                            names=["✅ U roku", "❌ Prekoračen"],
+                            title="Status rokova",
+                            color_discrete_sequence=['#2E8B57', '#DC143C']
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    st.markdown("---")
+                    st.subheader("Top 10 najvećih prekoračenja")
+                    st.dataframe(
+                        df_rok.nlargest(10, "Prekoračenje (dani)")[
+                            ["Broj reklamacije", "Naziv artikla", "Starost (dani)", "Prekoračenje (dani)", "reklamacija otvorena od strane"]
+                        ],
+                        use_container_width=True
+                    )
+                    
+                    st.markdown("---")
+                    st.subheader("Filter po osobi koja je otvorila reklamaciju")
+                    if "reklamacija otvorena od strane" in df_rok.columns:
+                        osobe = ["Sve"] + sorted(df_rok["reklamacija otvorena od strane"].dropna().unique().tolist())
+                        izabrana_osoba = st.selectbox("Izaberi osobu", osobe)
+                        
+                        if izabrana_osoba != "Sve":
+                            df_filtered = df_rok[df_rok["reklamacija otvorena od strane"] == izabrana_osoba]
+                        else:
+                            df_filtered = df_rok
+                        
+                        st.dataframe(
+                            df_filtered[["Broj reklamacije", "Naziv artikla", "Starost (dani)", "Prekoračenje (dani)", "Status roka"]],
+                            use_container_width=True
+                        )
+                else:
+                    st.info("Nema validnih podataka za analizu rokova")
+            else:
+                st.warning("Nedostaju podaci za analizu rokova. Proverite da li Excel fajl sadrži kolonu 'Reklamacija: Created Date'.")
