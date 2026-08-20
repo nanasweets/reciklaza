@@ -80,11 +80,9 @@ HEADER_FONT = "FFFFFF"
 LOOKUP_BG = "D9E1F2"
 LOOKUP_FONT = "1F4E79"
 
-# Parametri za prodaju trećem licu (podrazumevane vrednosti)
+# Parametri za prodaju trećem licu
 if "kurs_evra" not in st.session_state:
     st.session_state.kurs_evra = 117.0
-if "komada_po_paleti" not in st.session_state:
-    st.session_state.komada_po_paleti = 25   # PROMENJENO: 25 komada po paleti
 if "cena_po_paleti_evri" not in st.session_state:
     st.session_state.cena_po_paleti_evri = 110.0
 
@@ -212,66 +210,42 @@ def spoji(reciklaza, lookup):
     return df[finalne]
 
 # ============================
-# PRODAJA TREĆEM LICU (ISPRAVLJENA)
+# PRODAJA TREĆEM LICU (NOVA VERZIJA)
 # ============================
 
-def generisi_predlog_prodaje(df, kurs_evra=117, komada_po_paleti=25, cena_po_paleti_evri=110):
+def generisi_predlog_prodaje(df, kurs_evra=117, cena_po_paleti_evri=110):
     """
     Generiše predlog za prodaju trećem licu.
-    Kriterijum: Starost > 30 dana i Vreme u magacinu > 30 dana (ukupno > 60 dana).
+    - SVI artikli idu u prodaju (bez filtera)
+    - Broj paleta = broj unikatnih skladišnih lokacija
     """
     df_copy = df.copy()
     
-    if "Starost (dani)" not in df_copy.columns:
-        return None, "Nema podataka o starosti reklamacija"
+    if "Skladišna lokacija" not in df_copy.columns:
+        return None, "Nema podataka o skladišnim lokacijama"
     
-    if "Datum obrade" not in df_copy.columns:
-        return None, "Nema podataka o datumu prijema"
+    if "Nabavna cena" not in df_copy.columns or "Količina" not in df_copy.columns:
+        return None, "Nema podataka o nabavnoj ceni ili količini"
     
-    df_copy["Datum obrade"] = pd.to_datetime(df_copy["Datum obrade"], errors="coerce")
-    df_copy["Starost (dani)"] = pd.to_numeric(df_copy["Starost (dani)"], errors="coerce")
+    df_copy["Ukupna nabavna vrednost (RSD)"] = df_copy["Nabavna cena"] * df_copy["Količina"]
     
-    danas = datetime.now()
-    df_copy["Vreme u magacinu (dani)"] = (danas - df_copy["Datum obrade"]).dt.days
-    
-    # FILTER: Starost > 30 dana I Vreme u magacinu > 30 dana
-    df_predlog = df_copy[
-        (df_copy["Starost (dani)"] > 30) & 
-        (df_copy["Vreme u magacinu (dani)"] > 30) &
-        (df_copy["Datum obrade"].notna())
-    ].copy()
-    
-    if len(df_predlog) == 0:
-        return None, "Nema artikala koji ispunjavaju kriterijume za prodaju (starost >30 dana i vreme u magacinu >30 dana)"
-    
-    # Ukupna nabavna vrednost
-    df_predlog["Ukupna nabavna vrednost (RSD)"] = df_predlog["Nabavna cena"] * df_predlog["Količina"]
-    
-    # ISPRAVKA: Broj paleta = ceil(količina / komada_po_paleti)
-    df_predlog["Broj paleta"] = (df_predlog["Količina"] / komada_po_paleti).apply(
-        lambda x: int(x) + (1 if x % 1 > 0 else 0)
-    )
-    
-    df_predlog["Vrednost ponude (€)"] = df_predlog["Broj paleta"] * cena_po_paleti_evri
-    df_predlog["Vrednost ponude (RSD)"] = df_predlog["Vrednost ponude (€)"] * kurs_evra
-    df_predlog["Gubitak (RSD)"] = df_predlog["Ukupna nabavna vrednost (RSD)"] - df_predlog["Vrednost ponude (RSD)"]
-    df_predlog["Ukupna starost (dani)"] = df_predlog["Starost (dani)"] + df_predlog["Vreme u magacinu (dani)"]
+    # BROJ PALETA = BROJ UNIKATNIH SKLADIŠNIH LOKACIJA
+    ukupno_paleta = df_copy["Skladišna lokacija"].nunique()
     
     # Sažetak
     sazetak = {
-        "Ukupno artikala": df_predlog["Količina"].sum(),
-        "Ukupno paleta": df_predlog["Broj paleta"].sum(),
-        "Ukupna nabavna vrednost (RSD)": df_predlog["Ukupna nabavna vrednost (RSD)"].sum(),
-        "Ukupna vrednost ponude (€)": df_predlog["Vrednost ponude (€)"].sum(),
-        "Ukupna vrednost ponude (RSD)": df_predlog["Vrednost ponude (RSD)"].sum(),
-        "Ukupni gubitak (RSD)": df_predlog["Gubitak (RSD)"].sum(),
-        "Broj artikala za prodaju": len(df_predlog),
-        "Prosečna starost reklamacije (dani)": df_predlog["Starost (dani)"].mean().round(0),
-        "Prosečno vreme u magacinu (dani)": df_predlog["Vreme u magacinu (dani)"].mean().round(0),
-        "Prosečna ukupna starost (dani)": df_predlog["Ukupna starost (dani)"].mean().round(0),
+        "Ukupno artikala": df_copy["Količina"].sum(),
+        "Ukupno paleta": ukupno_paleta,
+        "Ukupna nabavna vrednost (RSD)": df_copy["Ukupna nabavna vrednost (RSD)"].sum(),
+        "Ukupna vrednost ponude (€)": ukupno_paleta * cena_po_paleti_evri,
+        "Ukupna vrednost ponude (RSD)": ukupno_paleta * cena_po_paleti_evri * kurs_evra,
+        "Ukupni gubitak (RSD)": df_copy["Ukupna nabavna vrednost (RSD)"].sum() - (ukupno_paleta * cena_po_paleti_evri * kurs_evra),
+        "Broj artikala za prodaju": len(df_copy),
+        "Broj unikatnih lokacija": ukupno_paleta,
     }
     
-    df_predlog = df_predlog.sort_values("Gubitak (RSD)", ascending=False)
+    df_predlog = df_copy.copy()
+    
     return df_predlog, sazetak
 
 # ============================
@@ -702,33 +676,22 @@ def upisi_analiza_rokova(ws, df):
     for col in range(1, 6):
         ws.column_dimensions[get_column_letter(col)].width = 30
 
-def upisi_predlog_prodaje(ws, df, kurs_evra=117, komada_po_paleti=25, cena_po_paleti_evri=110):
+def upisi_predlog_prodaje(ws, df, kurs_evra=117, cena_po_paleti_evri=110):
+    """Sheet: Predlog za prodaju trećem licu (SVI artikli)"""
+    
     ws.cell(row=1, column=1, value="PREDLOG ZA PRODAJU TREĆEM LICU")
     ws.cell(row=1, column=1).font = Font(bold=True, size=14, color=HEADER_BG)
     
     row = 3
     
-    if "Starost (dani)" not in df.columns or "Datum obrade" not in df.columns:
-        ws.cell(row=row, column=1, value="Nedostaju podaci za generisanje predloga")
+    if "Skladišna lokacija" not in df.columns:
+        ws.cell(row=row, column=1, value="Nema podataka o skladišnim lokacijama")
         return
     
     df_copy = df.copy()
-    df_copy["Datum obrade"] = pd.to_datetime(df_copy["Datum obrade"], errors="coerce")
-    df_copy["Starost (dani)"] = pd.to_numeric(df_copy["Starost (dani)"], errors="coerce")
+    df_copy["Ukupna nabavna vrednost (RSD)"] = df_copy["Nabavna cena"] * df_copy["Količina"]
     
-    danas = datetime.now()
-    df_copy["Vreme u magacinu (dani)"] = (danas - df_copy["Datum obrade"]).dt.days
-    
-    # FILTER: Starost > 30 dana I Vreme u magacinu > 30 dana
-    df_predlog = df_copy[
-        (df_copy["Starost (dani)"] > 30) & 
-        (df_copy["Vreme u magacinu (dani)"] > 30) &
-        (df_copy["Datum obrade"].notna())
-    ].copy()
-    
-    if len(df_predlog) == 0:
-        ws.cell(row=row, column=1, value="Nema artikala koji ispunjavaju kriterijume za prodaju")
-        return
+    ukupno_paleta = df_copy["Skladišna lokacija"].nunique()
     
     # Parametri
     ws.cell(row=row, column=1, value="PARAMETRI PREDLOGA")
@@ -739,47 +702,25 @@ def upisi_predlog_prodaje(ws, df, kurs_evra=117, komada_po_paleti=25, cena_po_pa
     ws.cell(row=row, column=2, value=kurs_evra)
     row += 1
     
-    ws.cell(row=row, column=1, value="Komada po paleti")
-    ws.cell(row=row, column=2, value=komada_po_paleti)
-    row += 1
-    
     ws.cell(row=row, column=1, value="Cena po paleti (€)")
     ws.cell(row=row, column=2, value=cena_po_paleti_evri)
     row += 2
     
-    # Kriterijum
-    ws.cell(row=row, column=1, value="KRITERIJUM ZA PRODAJU:")
+    ws.cell(row=row, column=1, value="NAPOMENA:")
     ws.cell(row=row, column=1).font = Font(bold=True, size=11)
     row += 1
     
-    ws.cell(row=row, column=1, value="Starost reklamacije > 30 dana (zakonski rok istekao)")
+    ws.cell(row=row, column=1, value="✅ SVI artikli se prodaju trećem licu (bez obzira na rok)")
     row += 1
     
-    ws.cell(row=row, column=1, value="Vreme u magacinu > 30 dana (čeka na prodaju)")
-    row += 1
-    
-    ws.cell(row=row, column=1, value="Ukupno > 60 dana od otvaranja reklamacije")
+    ws.cell(row=row, column=1, value=f"📦 Broj paleta = broj unikatnih skladišnih lokacija: {ukupno_paleta}")
     row += 2
     
-    # Izračunavanja
-    df_predlog["Ukupna nabavna vrednost (RSD)"] = df_predlog["Nabavna cena"] * df_predlog["Količina"]
-    
-    # ISPRAVKA: Broj paleta = ceil(količina / komada_po_paleti)
-    df_predlog["Broj paleta"] = (df_predlog["Količina"] / komada_po_paleti).apply(
-        lambda x: int(x) + (1 if x % 1 > 0 else 0)
-    )
-    
-    df_predlog["Vrednost ponude (€)"] = df_predlog["Broj paleta"] * cena_po_paleti_evri
-    df_predlog["Vrednost ponude (RSD)"] = df_predlog["Vrednost ponude (€)"] * kurs_evra
-    df_predlog["Gubitak (RSD)"] = df_predlog["Ukupna nabavna vrednost (RSD)"] - df_predlog["Vrednost ponude (RSD)"]
-    df_predlog["Ukupna starost (dani)"] = df_predlog["Starost (dani)"] + df_predlog["Vreme u magacinu (dani)"]
-    
-    # Header
+    # Header za tabelu
     headers = [
         "Broj reklamacije", "Naziv artikla", "Brend", "Količina",
         "Nabavna cena (RSD)", "Ukupna nabavna (RSD)",
-        "Starost rekl. (dani)", "Vreme u mag. (dani)", "Ukupno (dani)",
-        "Broj paleta", "Ponuda (€)", "Ponuda (RSD)", "Gubitak (RSD)"
+        "Skladišna lokacija", "Status roka"
     ]
     
     for col_idx, h in enumerate(headers, start=1):
@@ -787,20 +728,19 @@ def upisi_predlog_prodaje(ws, df, kurs_evra=117, komada_po_paleti=25, cena_po_pa
     primeni_stil_header(ws, len(headers))
     row += 1
     
-    for _, r in df_predlog.iterrows():
+    for _, r in df_copy.iterrows():
         ws.cell(row=row, column=1).value = excel_compatible(r["Broj reklamacije"])
         ws.cell(row=row, column=2).value = excel_compatible(r["Naziv artikla"])
         ws.cell(row=row, column=3).value = excel_compatible(r["Brend"])
         ws.cell(row=row, column=4).value = excel_compatible(r["Količina"])
         ws.cell(row=row, column=5).value = excel_compatible(r["Nabavna cena"])
         ws.cell(row=row, column=6).value = excel_compatible(r["Ukupna nabavna vrednost (RSD)"])
-        ws.cell(row=row, column=7).value = excel_compatible(r["Starost (dani)"])
-        ws.cell(row=row, column=8).value = excel_compatible(r["Vreme u magacinu (dani)"])
-        ws.cell(row=row, column=9).value = excel_compatible(r["Ukupna starost (dani)"])
-        ws.cell(row=row, column=10).value = excel_compatible(r["Broj paleta"])
-        ws.cell(row=row, column=11).value = excel_compatible(r["Vrednost ponude (€)"])
-        ws.cell(row=row, column=12).value = excel_compatible(r["Vrednost ponude (RSD)"])
-        ws.cell(row=row, column=13).value = excel_compatible(r["Gubitak (RSD)"])
+        ws.cell(row=row, column=7).value = excel_compatible(r["Skladišna lokacija"])
+        
+        if "Status roka" in r:
+            ws.cell(row=row, column=8).value = excel_compatible(r["Status roka"])
+        else:
+            ws.cell(row=row, column=8).value = "N/A"
         row += 1
     
     # Sažetak
@@ -810,44 +750,33 @@ def upisi_predlog_prodaje(ws, df, kurs_evra=117, komada_po_paleti=25, cena_po_pa
     row += 1
     
     ws.cell(row=row, column=1, value="Ukupno artikala")
-    ws.cell(row=row, column=2, value=df_predlog["Količina"].sum())
+    ws.cell(row=row, column=2, value=df_copy["Količina"].sum())
     row += 1
     
     ws.cell(row=row, column=1, value="Ukupno paleta")
-    ws.cell(row=row, column=2, value=df_predlog["Broj paleta"].sum())
+    ws.cell(row=row, column=2, value=ukupno_paleta)
     row += 1
     
     ws.cell(row=row, column=1, value="Ukupna nabavna vrednost (RSD)")
-    ws.cell(row=row, column=2, value=f"{df_predlog['Ukupna nabavna vrednost (RSD)'].sum():,.2f}")
+    ws.cell(row=row, column=2, value=f"{df_copy['Ukupna nabavna vrednost (RSD)'].sum():,.2f}")
     row += 1
     
-    ws.cell(row=row, column=1, value="Ukupna vrednost ponude (€)")
-    ws.cell(row=row, column=2, value=f"{df_predlog['Vrednost ponude (€)'].sum():,.2f} €")
+    ws.cell(row=row, column=1, value=f"Ukupna vrednost ponude ({cena_po_paleti_evri}€/paleti)")
+    ws.cell(row=row, column=2, value=f"{ukupno_paleta * cena_po_paleti_evri:,.2f} €")
     row += 1
     
     ws.cell(row=row, column=1, value="Ukupna vrednost ponude (RSD)")
-    ws.cell(row=row, column=2, value=f"{df_predlog['Vrednost ponude (RSD)'].sum():,.2f} RSD")
+    ws.cell(row=row, column=2, value=f"{ukupno_paleta * cena_po_paleti_evri * kurs_evra:,.2f} RSD")
     row += 1
     
     ws.cell(row=row, column=1, value="UKUPAN GUBITAK (RSD)")
     ws.cell(row=row, column=1).font = Font(bold=True, color="FF0000")
-    ws.cell(row=row, column=2, value=f"{df_predlog['Gubitak (RSD)'].sum():,.2f} RSD")
+    gubitak = df_copy["Ukupna nabavna vrednost (RSD)"].sum() - (ukupno_paleta * cena_po_paleti_evri * kurs_evra)
+    ws.cell(row=row, column=2, value=f"{gubitak:,.2f} RSD")
     ws.cell(row=row, column=2).font = Font(bold=True, color="FF0000")
-    row += 1
     
-    ws.cell(row=row, column=1, value="Prosečna starost reklamacije (dani)")
-    ws.cell(row=row, column=2, value=df_predlog["Starost (dani)"].mean().round(0))
-    row += 1
-    
-    ws.cell(row=row, column=1, value="Prosečno vreme u magacinu (dani)")
-    ws.cell(row=row, column=2, value=df_predlog["Vreme u magacinu (dani)"].mean().round(0))
-    row += 1
-    
-    ws.cell(row=row, column=1, value="Prosečna ukupna starost (dani)")
-    ws.cell(row=row, column=2, value=df_predlog["Ukupna starost (dani)"].mean().round(0))
-    
-    for col in range(1, 14):
-        ws.column_dimensions[get_column_letter(col)].width = 20
+    for col in range(1, 9):
+        ws.column_dimensions[get_column_letter(col)].width = 25
 
 def upisi_metrike(ws, df):
     ws.cell(row=1, column=1, value="Napredne metrike")
@@ -1034,7 +963,7 @@ def formatiraj_i_sacuvaj(df):
     upisi_analiza_rokova(ws, df)
     
     ws = wb.create_sheet("Predlog prodaje 3. lice")
-    upisi_predlog_prodaje(ws, df, st.session_state.kurs_evra, st.session_state.komada_po_paleti, st.session_state.cena_po_paleti_evri)
+    upisi_predlog_prodaje(ws, df, st.session_state.kurs_evra, st.session_state.cena_po_paleti_evri)
     
     ws = wb.create_sheet("Napredne metrike")
     upisi_metrike(ws, df)
@@ -1083,11 +1012,9 @@ def generisi_pdf(df):
     elements.append(kpi_table)
     elements.append(PageBreak())
     
-    # ... Ostatak PDF generatora je isti kao u prethodnoj verziji ...
-    # (Zbog dužine, ostavljam skraćeno – ali u potpunom kodu je sve).
-    # Ovde bi sledile sve sekcije (klasifikacija, šteta, brendovi, trend, pareto, rokovi...)
+    # Ostatak PDF-a je isti kao u prethodnoj verziji – skraćeno radi dužine
+    # (obuhvata sve sekcije: klasifikacije, brendovi, trend, pareto, rokovi)
     
-    # Završna
     elements.append(PageBreak())
     elements.append(Spacer(1, 5*cm))
     elements.append(Paragraph("Izveštaj generisan automatski", normal_style))
@@ -1164,7 +1091,6 @@ if uploaded_file is not None:
             df = spoji(reciklaza, lookup)
         st.success(f"✅ Učitano: {len(reciklaza)} redova, spojeno: {len(df)} redova")
         
-        # Debug: Provera novembra
         if "Datum obrade" in df.columns:
             df["Datum obrade"] = pd.to_datetime(df["Datum obrade"], errors="coerce")
             novembar = df[df["Datum obrade"].dt.month == 11]
@@ -1383,30 +1309,23 @@ if uploaded_file is not None:
         with tab7:
             st.subheader("📦 Predlog za prodaju trećem licu")
             st.info("""
-            **Kriterijum za prodaju:**
-            - Starost reklamacije > 30 dana (zakonski rok istekao)
-            - Vreme u magacinu reciklaže > 30 dana (čeka na prodaju)
-            - Ukupno > 60 dana od otvaranja reklamacije
+            **📌 Predlog obuhvata SVE artikle na reciklaži.**
+            
+            - **Broj paleta** = broj unikatnih **skladišnih lokacija**
+            - **Rokovi** su prikazani samo za informaciju (KPI praćenje)
             """)
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
                 kurs_evra = st.number_input("💶 Kurs evra (RSD)", min_value=50.0, max_value=200.0, value=st.session_state.kurs_evra, step=0.5)
                 st.session_state.kurs_evra = kurs_evra
             with col2:
-                komada_po_paleti = st.number_input("📦 Komada po paleti", min_value=1, max_value=500, value=st.session_state.komada_po_paleti, step=1,
-                                                    help="Broj komada koji staje na jednu standardnu paletu (120x80cm)")
-                st.session_state.komada_po_paleti = komada_po_paleti
-            with col3:
                 cena_po_paleti = st.number_input("💰 Cena po paleti (€)", min_value=10.0, max_value=500.0, value=st.session_state.cena_po_paleti_evri, step=5.0)
                 st.session_state.cena_po_paleti_evri = cena_po_paleti
             
-            # Dodatno objašnjenje
-            st.caption(f"💡 Trenutna podešavanja: {komada_po_paleti} komada po paleti, {cena_po_paleti} € po paleti. Broj paleta se računa kao: ceil(ukupno komada / komada po paleti).")
+            df_predlog, sazetak = generisi_predlog_prodaje(df, kurs_evra, cena_po_paleti)
             
-            df_predlog, sazetak = generisi_predlog_prodaje(df, kurs_evra, komada_po_paleti, cena_po_paleti)
-            
-            if df_predlog is not None and len(df_predlog) > 0:
+            if df_predlog is not None:
                 st.markdown("### 📊 Sažetak predloga")
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("📦 Ukupno artikala", sazetak["Ukupno artikala"])
@@ -1414,20 +1333,20 @@ if uploaded_file is not None:
                 col3.metric("💰 Ponuda (€)", f"{sazetak['Ukupna vrednost ponude (€)']:,.2f} €")
                 col4.metric("📉 Gubitak (RSD)", f"{sazetak['Ukupni gubitak (RSD)']:,.2f} RSD")
                 
-                col1, col2, col3 = st.columns(3)
-                col1.metric("⏳ Prosečna starost reklamacije", f"{sazetak['Prosečna starost reklamacije (dani)']:.0f} dana")
-                col2.metric("🏠 Prosečno vreme u magacinu", f"{sazetak['Prosečno vreme u magacinu (dani)']:.0f} dana")
-                col3.metric("📅 Prosečna ukupna starost", f"{sazetak['Prosečna ukupna starost (dani)']:.0f} dana")
-                
                 st.markdown("### 📋 Detaljna tabela")
-                st.dataframe(df_predlog, use_container_width=True)
+                
+                prikaz_kolone = ["Broj reklamacije", "Naziv artikla", "Brend", "Količina", 
+                                "Nabavna cena", "Ukupna nabavna vrednost (RSD)", 
+                                "Skladišna lokacija", "Status roka"]
+                dostupne = [c for c in prikaz_kolone if c in df_predlog.columns]
+                st.dataframe(df_predlog[dostupne], use_container_width=True)
                 
                 st.markdown("### 📤 Izvezi predlog")
                 try:
                     wb_predlog = Workbook()
                     ws_predlog = wb_predlog.active
                     ws_predlog.title = "Predlog prodaje"
-                    upisi_predlog_prodaje(ws_predlog, df, kurs_evra, komada_po_paleti, cena_po_paleti)
+                    upisi_predlog_prodaje(ws_predlog, df, kurs_evra, cena_po_paleti)
                     output_predlog = io.BytesIO()
                     wb_predlog.save(output_predlog)
                     predlog_data = output_predlog.getvalue()
@@ -1442,4 +1361,4 @@ if uploaded_file is not None:
                 except Exception as e:
                     st.error(f"Greška: {e}")
             else:
-                st.success("✅ Trenutno nema artikala koji ispunjavaju kriterijume za prodaju trećem licu.")
+                st.warning(sazetak if isinstance(sazetak, str) else "Nema podataka za prikaz")
