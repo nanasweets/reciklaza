@@ -1050,62 +1050,82 @@ if uploaded_file is not None:
                 st.warning("Nedostaju podaci za analizu rokova")
         
         with tab7:
-            st.subheader("💰 Specifikacija ispravke finansijske vrednosti")
-            st.info("""
-            **Dokument prikazuje finansijski efekat prodaje trećem licu.**
-            - **% obezvređenja** = (Nabavna vrednost - MP cena) / Nabavna vrednost × 100
-            - **Ponuda po komadu bez PDV** = Nabavna cena × (1 - % obezvređenja / 100)
-            - **Ponuda sa PDV** = Ponuda bez PDV × (1 + PDV stopa / 100)
-            - **Ukupna vrednost ponude** = Ponuda sa PDV × Količina
-            """)
-            
-            st.markdown(f"**Datum izveštaja:** {datetime.now().strftime('%d.%m.%Y %H:%M')}")
-            
-            if "Skladišna lokacija" in df.columns and "Nabavna cena" in df.columns:
-                df_copy = df.copy()
-                df_copy["Nabavna cena sa PDV"] = df_copy["Nabavna cena"] * (1 + st.session_state.pdv_stopa / 100)
-                df_copy["Ukupna nabavna sa PDV"] = df_copy["Nabavna cena sa PDV"] * df_copy["Količina"]
-                
-                ukupno_paleta = df_copy["Skladišna lokacija"].nunique()
-                ukupna_kolicina = df_copy["Količina"].sum()
-                ukupna_nabavna_bez_pdv = (df_copy["Nabavna cena"] * df_copy["Količina"]).sum()
-                ukupna_ponuda_bruto = ukupno_paleta * st.session_state.cena_po_paleti_evri * st.session_state.kurs_evra
-                ukupna_ponuda_neto = ukupna_ponuda_bruto / (1 + st.session_state.pdv_stopa / 100)
-                
-                razlika = ukupna_nabavna_bez_pdv - ukupna_ponuda_neto
-                procenat = (razlika / ukupna_nabavna_bez_pdv) * 100 if ukupna_nabavna_bez_pdv > 0 else 0
-                
-                st.markdown("### 📊 Sumarni pregled")
-                sum_data = {
-                    "Magacin": "DC 74-Magacin reciklaže",
-                    "Zbir Količina": f"{ukupna_kolicina:.0f}",
-                    "Zbir Nabavna cena bez PDV": f"{ukupna_nabavna_bez_pdv:,.2f}",
-                    "MP cena bez PDV": f"{ukupna_ponuda_neto:,.2f}",
-                    "Razlika": f"{razlika:,.2f}",
-                    "% obezvređenja": f"{procenat:.2f}%"
-                }
-                st.dataframe(pd.DataFrame([sum_data]), use_container_width=True)
-                
-                st.markdown("### 📋 Detaljna specifikacija")
-                # Dodaj izračunate kolone za prikaz
-                df_display = df_copy.copy()
-                df_display["Ponuda po komadu bez PDV"] = df_display["Nabavna cena"] * (1 - procenat / 100)
-                df_display["Ponuda po kom sa PDV"] = df_display["Ponuda po komadu bez PDV"] * (1 + st.session_state.pdv_stopa / 100)
-                df_display["Ukupna vrednost ponude sa PDV"] = df_display["Ponuda po kom sa PDV"] * df_display["Količina"]
-                df_display["Nabavna cena sa pdv"] = df_display["Nabavna cena"] * (1 + st.session_state.pdv_stopa / 100)
-                
-                prikaz = ["ID uređaja", "Naziv artikla", "Količina", 
-                         "Ponuda po komadu bez PDV", "Ponuda po kom sa PDV", 
-                         "Ukupna vrednost ponude sa PDV", "Nabavna cena", "Nabavna cena sa pdv"]
-                dostupne = [c for c in prikaz if c in df_display.columns]
-                # Preimenuj kolone za prikaz
-                df_display = df_display.rename(columns={
-                    "ID uređaja": "Šifra",
-                    "Naziv artikla": "Artikli",
-                    "Količina": "Lager",
-                    "Nabavna cena": "Nabavna cena bez pdv-a"
-                })
-                st.dataframe(df_display[dostupne], use_container_width=True)
+    st.subheader("💰 Specifikacija ispravke finansijske vrednosti")
+    st.info("""
+    **Dokument prikazuje finansijski efekat prodaje trećem licu.**
+    - **% obezvređenja** = (Nabavna vrednost - MP cena) / Nabavna vrednost × 100
+    - **Ponuda po komadu bez PDV** = Nabavna cena × (1 - % obezvređenja / 100)
+    - **Ponuda sa PDV** = Ponuda bez PDV × (1 + PDV stopa / 100)
+    - **Ukupna vrednost ponude** = Ponuda sa PDV × Količina
+    """)
+    
+    st.markdown(f"**Datum izveštaja:** {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+    
+    if "Skladišna lokacija" in df.columns and "Nabavna cena" in df.columns:
+        df_copy = df.copy()
+        df_copy["Nabavna cena sa PDV"] = df_copy["Nabavna cena"] * (1 + st.session_state.pdv_stopa / 100)
+        df_copy["Ukupna nabavna sa PDV"] = df_copy["Nabavna cena sa PDV"] * df_copy["Količina"]
+        
+        ukupno_paleta = df_copy["Skladišna lokacija"].nunique()
+        ukupna_kolicina = df_copy["Količina"].sum()
+        ukupna_nabavna_bez_pdv = (df_copy["Nabavna cena"] * df_copy["Količina"]).sum()
+        ukupna_ponuda_bruto = ukupno_paleta * st.session_state.cena_po_paleti_evri * st.session_state.kurs_evra
+        ukupna_ponuda_neto = ukupna_ponuda_bruto / (1 + st.session_state.pdv_stopa / 100)
+        
+        razlika = ukupna_nabavna_bez_pdv - ukupna_ponuda_neto
+        procenat = (razlika / ukupna_nabavna_bez_pdv) * 100 if ukupna_nabavna_bez_pdv > 0 else 0
+        
+        st.markdown("### 📊 Sumarni pregled")
+        sum_data = {
+            "Magacin": "DC 74-Magacin reciklaže",
+            "Zbir Količina": f"{ukupna_kolicina:.0f}",
+            "Zbir Nabavna cena bez PDV": f"{ukupna_nabavna_bez_pdv:,.2f}",
+            "MP cena bez PDV": f"{ukupna_ponuda_neto:,.2f}",
+            "Razlika": f"{razlika:,.2f}",
+            "% obezvređenja": f"{procenat:.2f}%"
+        }
+        st.dataframe(pd.DataFrame([sum_data]), use_container_width=True)
+        
+        st.markdown("### 📋 Detaljna specifikacija")
+        
+        # Izračunaj sve kolone
+        df_display = df_copy.copy()
+        df_display["Ponuda po komadu bez PDV"] = df_display["Nabavna cena"] * (1 - procenat / 100)
+        df_display["Ponuda po kom sa PDV"] = df_display["Ponuda po komadu bez PDV"] * (1 + st.session_state.pdv_stopa / 100)
+        df_display["Ukupna vrednost ponude sa PDV"] = df_display["Ponuda po kom sa PDV"] * df_display["Količina"]
+        df_display["Nabavna cena sa pdv"] = df_display["Nabavna cena"] * (1 + st.session_state.pdv_stopa / 100)
+        
+        # Odredi šifru – ako postoji ID uređaja, koristi ga, inače Broj reklamacije
+        sifra_kol = "ID uređaja" if "ID uređaja" in df_display.columns else "Broj reklamacije"
+        
+        # Definiši redosled kolona za prikaz (sa novim nazivima)
+        prikaz_kolone = [
+            sifra_kol,
+            "Naziv artikla",
+            "Količina",
+            "Ponuda po komadu bez PDV",
+            "Ponuda po kom sa PDV",
+            "Ukupna vrednost ponude sa PDV",
+            "Nabavna cena",
+            "Nabavna cena sa pdv"
+        ]
+        
+        # Preimenuj kolone za prikaz
+        df_display = df_display.rename(columns={
+            sifra_kol: "Šifra",
+            "Naziv artikla": "Artikli",
+            "Količina": "Lager",
+            "Nabavna cena": "Nabavna cena bez pdv-a"
+        })
+        
+        # Sada uzmi samo kolone koje postoje (posle preimenovanja)
+        dostupne = ["Šifra", "Artikli", "Lager", 
+                    "Ponuda po komadu bez PDV", "Ponuda po kom sa PDV", 
+                    "Ukupna vrednost ponude sa PDV", "Nabavna cena bez pdv-a", "Nabavna cena sa pdv"]
+        # Filtriraj samo one koje stvarno postoje
+        dostupne = [c for c in dostupne if c in df_display.columns]
+        
+        st.dataframe(df_display[dostupne], use_container_width=True)
         
         with tab8:
             st.subheader("📤 Izvoz")
